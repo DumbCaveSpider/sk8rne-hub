@@ -5,6 +5,7 @@ local HUB = {
 	Version = "1.0.0",
 	LibraryUrl = "https://raw.githubusercontent.com/Skinny-yz/VVind-UI/refs/heads/main/src.lua",
 	RepoUrl = "https://raw.githubusercontent.com/DumbCaveSpider/sk8rne-hub/refs/heads/main",
+	WebsiteUrl = "https://arcticwoof.xyz/",
 }
 
 local genv = (getgenv and getgenv()) or _G
@@ -90,6 +91,7 @@ end
 
 -- 3. Build the window: the detected game's tab, then the two tabs every session has.
 local gameDef = Games.Detect(game.PlaceId, game.GameId)
+local GAME_TAB_NAME = "Main"
 
 local Window = VindUI:CreateWindow({
 	Title = HUB.Name,
@@ -100,7 +102,7 @@ local Window = VindUI:CreateWindow({
 	Draggable = true,
 	Resizable = true,
 	UseBlur = true,
-	DefaultTab = gameDef and gameDef.Name or "Hub Settings",
+	DefaultTab = gameDef and GAME_TAB_NAME or "Hub Settings",
 	ToggleKeybind = false, -- Handled by the rebindable key in Hub Settings
 })
 
@@ -108,7 +110,7 @@ local session = Session.new(HUB, VindUI, Window, gameDef)
 genv.__Sk8rneHub = session
 
 if gameDef then
-	session:AttachGameTab(Window:AddTab({ Name = gameDef.Name, Icon = gameDef.Icon }))
+	session:AttachGameTab(Window:AddTab({ Name = GAME_TAB_NAME, Icon = gameDef.Icon }))
 	Window:AddTabLine()
 end
 
@@ -149,7 +151,7 @@ if gameDef then
 
 		session:FinishGameTab()
 		local restored = session:LoadGameConfig()
-		Window:SelectTab(gameDef.Name)
+		Window:SelectTab(GAME_TAB_NAME)
 		session.Notify(
 			restored and "Loaded with your saved config." or "Loaded. No saved config yet.",
 			"success"

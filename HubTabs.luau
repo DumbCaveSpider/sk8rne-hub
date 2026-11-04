@@ -151,6 +151,31 @@ local function buildHubSettings(session, Games)
 			or "This game isn't supported, so only the hub tabs are available.",
 	})
 
+	About:AddSection("Changelog", "Lucide:history")
+	About:AddChangelogEntry({
+		Version = session.Hub.Name .. " " .. session.Hub.Version,
+		Date = "Nov 5, 2026",
+		Changes = {
+			{ Type = "Added", Text = "15 games in one script, detected automatically" },
+			{ Type = "Added", Text = "Debug Console and Hub Settings tabs" },
+			{ Type = "Added", Text = "Saved settings for each game" },
+			{ Type = "Added", Text = "Website: " .. session.Hub.WebsiteUrl },
+		},
+	})
+	About:AddButton({
+		Text = "Copy Website Link",
+		Description = "Copies " .. session.Hub.WebsiteUrl .. " to the clipboard",
+		Icon = "Lucide:link",
+		Callback = function()
+			if setclipboard then
+				setclipboard(session.Hub.WebsiteUrl)
+				session.Notify("Website link copied.", "success")
+			else
+				session.Notify("Your executor has no clipboard support.", "error")
+			end
+		end,
+	})
+
 	About:AddSection("Supported Games", "Lucide:gamepad-2")
 	for _, def in ipairs(Games.List) do
 		About:AddLabel(def.Name)

@@ -18,7 +18,8 @@ Games.List = {
 	{ Key = "TradingTycoon", Name = "Trading Tycoon", Icon = "Lucide:trending-up", PlaceId = 112241277471797, UniverseId = 10767912502 },
 	{ Key = "UnseenLiminality", Name = "Unseen Liminality", Icon = "Lucide:camera", PlaceId = 82797688803922, UniverseId = 9885372266 },
 	{ Key = "CombatInitiation", Name = "Combat Initiation", Icon = "Lucide:crosshair", PlaceId = 13559635034, UniverseId = 4712126054 },
-	{ Key = "Riotfall", Name = "RIOTFALL", Icon = "Lucide:crosshair", PlaceId = 7796842481, UniverseId = 3021395192 },
+	{ Key = "DifficultyUpgradeTree", Name = "The Difficulty Upgrade Tree: Regrown", Icon = "Lucide:tree-pine", PlaceId = 15913854716, UniverseId = 5502624394 },
+	{ Key = "Riotfall",Name = "RIOTFALL", Icon = "Lucide:crosshair", PlaceId = 7796842481, UniverseId = 3021395192 },
 	{ Key = "ThePortal",Name = "The Portal", Icon = "Lucide:orbit", PlaceId = 122003435349029, UniverseId = 9356969539 },
 	{ Key = "KayoSports",Name = "Kayo Sports", Icon = "Lucide:trophy", PlaceId = 134767568300039, UniverseId = 10097848588 },
 }

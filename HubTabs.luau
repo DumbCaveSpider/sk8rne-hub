@@ -2,6 +2,101 @@
 
 local DEFAULT_TOGGLE_KEY = Enum.KeyCode.RightShift
 
+-- Windows rejects these characters and trailing dots or spaces in file names.
+local function safeFileName(name)
+	local cleaned = name:gsub('[<>:"/\\|%?%*%c]', "_"):gsub("[%. ]+$", "")
+	return cleaned ~= "" and cleaned or "_"
+end
+
+local function getDumpFolderName(session)
+	local name = session.Game and session.Game.Name
+	if not name then
+		local ok, info = pcall(function()
+			return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)
+		end)
+		name = ok and info and info.Name or tostring(game.PlaceId)
+	end
+	return safeFileName(name) .. "_dump"
+end
+
+local function hasScripts(instance)
+	if instance:IsA("LuaSourceContainer") then
+		return true
+	end
+	for _, descendant in ipairs(instance:GetDescendants()) do
+		if descendant:IsA("LuaSourceContainer") then
+			return true
+		end
+	end
+	return false
+end
+
+-- Plans the whole tree first so progress can be shown. Instances that hold no scripts are skipped,
+-- and names that would collide on a case-insensitive disk get a number.
+local function collectDumpEntries(parent, path, folders, scripts)
+	local used = {}
+	local function uniqueName(name)
+		local base = safeFileName(name)
+		local candidate, count = base, 1
+		while used[candidate:lower()] do
+			count += 1
+			candidate = base .. "_" .. count
+		end
+		used[candidate:lower()] = true
+		return candidate
+	end
+
+	for _, child in ipairs(parent:GetChildren()) do
+		if hasScripts(child) then
+			local name = uniqueName(child.Name)
+			if child:IsA("LuaSourceContainer") then
+				table.insert(scripts, { Instance = child, Path = path .. "/" .. name .. ".luau" })
+			end
+			if #child:GetChildren() > 0 then
+				local folder = path .. "/" .. name
+				local before = #folders + #scripts
+				table.insert(folders, folder)
+				collectDumpEntries(child, folder, folders, scripts)
+				if #folders + #scripts == before + 1 then
+					table.remove(folders) -- A script whose children hold no other scripts needs no folder.
+				end
+			end
+		end
+	end
+end
+
+local function dumpReplicatedStorage(session, statusLine)
+	local root = getDumpFolderName(session)
+	local folders, scripts = { root }, {}
+	collectDumpEntries(game:GetService("ReplicatedStorage"), root, folders, scripts)
+
+	for _, folder in ipairs(folders) do
+		if not isfolder(folder) then
+			makefolder(folder)
+		end
+	end
+
+	local failed = 0
+	for index, entry in ipairs(scripts) do
+		local ok, source = pcall(decompile, entry.Instance)
+		if ok and type(source) == "string" then
+			writefile(entry.Path, source)
+		else
+			failed += 1
+			session.Log("Could not decompile " .. entry.Instance:GetFullName() .. ": " .. tostring(source), "warn")
+		end
+		statusLine:Set(string.format("Dumping %d/%d", index, #scripts))
+		if index % 5 == 0 then
+			session.task.wait()
+		end
+	end
+
+	local summary = string.format("Saved %d of %d scripts to workspace/%s", #scripts - failed, #scripts, root)
+	session.Log(summary, failed > 0 and "warn" or "info")
+	session.Notify(summary, failed > 0 and "warning" or "success", 6)
+	statusLine:Set("Dump ReplicatedStorage")
+end
+
 local function buildDebugConsole(session)
 	local Window = session.Window
 	local tab = Window:AddTab({ Name = "Debug Console", Icon = "Lucide:terminal" })
@@ -36,6 +131,34 @@ local function buildDebugConsole(session)
 		Icon = "Lucide:trash-2",
 		Callback = function()
 			session:ClearLogs()
+		end,
+	})
+
+	local dumpStatus = Console:AddLineText("Dump ReplicatedStorage")
+	local dumping = false
+	Console:AddButton({
+		Text = "Dump Scripts",
+		Description = "Saves ReplicatedStorage's folders and scripts to workspace/" .. getDumpFolderName(session),
+		Icon = "Lucide:folder-down",
+		Callback = function()
+			if dumping then
+				session.Notify("A dump is already running.", "warning")
+				return
+			end
+			if not (decompile and writefile and makefolder and isfolder) then
+				session.Notify("Your executor can't decompile or write files.", "error")
+				return
+			end
+			dumping = true
+			session.task.spawn(function()
+				local ok, err = pcall(dumpReplicatedStorage, session, dumpStatus)
+				dumping = false
+				if not ok then
+					dumpStatus:Set("Dump ReplicatedStorage")
+					session.Log("Dump failed: " .. tostring(err), "error")
+					session.Notify("The dump failed. See the console.", "error")
+				end
+			end)
 		end,
 	})
 

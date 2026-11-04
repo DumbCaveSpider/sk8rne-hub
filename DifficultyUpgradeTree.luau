@@ -61,6 +61,42 @@ local function cleanText(text)
 end
 
 ---------------------------------------------------------------------
+-- Zones
+---------------------------------------------------------------------
+
+local ZONE_NAMES = {
+	[0] = "Abyss",
+	[1] = "Surface",
+	[2] = "Solar System",
+	[3] = "Constellation",
+	[4] = "Intergalactic",
+	[5] = "Intersection",
+	[6] = "Chronological",
+	[7] = "Singularity",
+}
+
+-- Each zone is its own place, so this normally stays the same for the whole session.
+local currentZoneValue = ReplicatedStorage:WaitForChild("CurrentZone", 10)
+
+local function getZoneNumber()
+	return currentZoneValue and currentZoneValue:IsA("ValueBase") and currentZoneValue.Value or nil
+end
+
+local function getZoneTitle(zone)
+	if zone == nil then
+		return "Lobby"
+	end
+	local name = ZONE_NAMES[zone]
+	return name and string.format("Zone %d: %s", zone, name) or ("Zone " .. tostring(zone))
+end
+
+local activeZone = getZoneNumber()
+
+-- Must be set before the hub loads saved values, which happens after this module finishes.
+ctx:SetConfigScope(activeZone ~= nil and ("Zone" .. tostring(activeZone)) or "Lobby")
+ctx.Log("Using settings for " .. getZoneTitle(activeZone))
+
+---------------------------------------------------------------------
 -- Upgrades
 ---------------------------------------------------------------------
 
@@ -433,6 +469,61 @@ ctx:OnCleanup(restoreLighting)
 -- UI
 ---------------------------------------------------------------------
 
+-- Features that only exist in one zone. Add a zone's number here to give it its own controls.
+local ZONE_FEATURES = {
+	[0] = function(tab)
+		tab:AddSection("Rest", "Lucide:bed")
+		tab:AddToggle({
+			Text = "Auto Rest",
+			Description = "Uses the bed on a timer, which resets progress the way resting normally does",
+			Icon = "Lucide:bed",
+			Default = false,
+			Flag = "dut_auto_rest",
+			Locked = not fireproximityprompt,
+			Callback = function(value)
+				Settings.AutoRest = value
+				if value then
+					runLoop("Auto Rest", function()
+						return Settings.AutoRest
+					end, restStep, function()
+						return Settings.RestInterval
+					end)
+				end
+			end,
+		})
+		tab:AddSlider({
+			Text = "Rest Interval",
+			Description = "Time between rests",
+			Icon = "Lucide:timer",
+			Min = 5,
+			Max = 300,
+			Default = Settings.RestInterval,
+			Increment = 5,
+			Suffix = "s",
+			Flag = "dut_rest_interval",
+			Callback = function(value)
+				Settings.RestInterval = value
+			end,
+		})
+	end,
+}
+
+local ZoneTab = ctx:SubTab(getZoneTitle(activeZone), "Lucide:map")
+
+ZoneTab:AddSection("Current Zone", "Lucide:map-pin")
+ZoneTab:AddParagraph({
+	Title = getZoneTitle(activeZone),
+	Icon = "Lucide:map",
+	Text = "Upgrades and saved settings on every subtab belong to this zone only.",
+})
+
+local buildZoneFeatures = ZONE_FEATURES[activeZone]
+if buildZoneFeatures then
+	buildZoneFeatures(ZoneTab)
+else
+	ZoneTab:AddLabel("This zone has no zone-specific features yet.")
+end
+
 local FarmTab = ctx:SubTab("Farm", "Lucide:coins")
 
 FarmTab:AddSection("Upgrades", "Lucide:arrow-up")
@@ -475,7 +566,7 @@ local buyFilter = FarmTab:AddDropdown({
 	Options = getUpgradeOptions(),
 	MultiSelect = true,
 	Default = {},
-	Flag = false, -- Upgrades differ per zone, so a saved selection could match nothing
+	Flag = "dut_buy_filter", -- Saved per zone, so it always matches that zone's upgrades
 	Callback = function(value)
 		Settings.BuyFilter = value
 	end,
@@ -519,39 +610,12 @@ FarmTab:AddButton({
 	end,
 })
 
-FarmTab:AddSection("Rest", "Lucide:bed")
-FarmTab:AddToggle({
-	Text = "Auto Rest",
-	Description = "Uses the bed on a timer, which resets progress the way resting normally does",
-	Icon = "Lucide:bed",
-	Default = false,
-	Flag = "dut_auto_rest",
-	Locked = not fireproximityprompt,
-	Callback = function(value)
-		Settings.AutoRest = value
-		if value then
-			runLoop("Auto Rest", function()
-				return Settings.AutoRest
-			end, restStep, function()
-				return Settings.RestInterval
-			end)
-		end
-	end,
-})
-FarmTab:AddSlider({
-	Text = "Rest Interval",
-	Description = "Time between rests",
-	Icon = "Lucide:timer",
-	Min = 5,
-	Max = 300,
-	Default = Settings.RestInterval,
-	Increment = 5,
-	Suffix = "s",
-	Flag = "dut_rest_interval",
-	Callback = function(value)
-		Settings.RestInterval = value
-	end,
-})
+-- Saved values and the zone subtab were chosen at load, so a later change needs a re-run.
+if currentZoneValue and currentZoneValue:IsA("ValueBase") then
+	ctx:Connect(currentZoneValue.Changed, function()
+		ctx.Notify("Zone changed. Run the hub again to load that zone's tab and settings.", "warning", 8)
+	end)
+end
 
 local PlayerTab = ctx:SubTab("Player", "Lucide:user")
 

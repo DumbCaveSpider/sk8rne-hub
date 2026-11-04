@@ -471,8 +471,17 @@ function Session:_saveScoped(name, wantHubFlags)
 	return success, err
 end
 
+-- Lets a module keep separate saved settings per area, such as per zone of a game.
+function Session:SetConfigScope(scope)
+	self._configScope = scope
+end
+
 function Session:GameConfigName()
-	return self.Game and ("Sk8rneHub_" .. self.Game.Key) or nil
+	if not self.Game then
+		return nil
+	end
+	local name = "Sk8rneHub_" .. self.Game.Key
+	return self._configScope and (name .. "_" .. self._configScope) or name
 end
 
 function Session:SaveConfig()

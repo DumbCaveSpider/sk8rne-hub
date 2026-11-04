@@ -143,9 +143,9 @@ if gameDef then
 
 		if not ok then
 			session.Log(gameDef.Name .. " failed to load:\n" .. tostring(runError), "error")
-			session.Notify("Failed to load this game's features. See Debug Console.", "error")
+			session.Notify("Failed to load this game's features. See the Debug tab.", "error")
 			session:ShowGameError(tostring(runError))
-			Window:SelectTab("Debug Console")
+			Window:SelectTab("Debug")
 			return
 		end
 

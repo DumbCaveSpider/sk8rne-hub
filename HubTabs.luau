@@ -1,4 +1,4 @@
--- The two tabs every session has: Debug Console and Hub Settings.
+-- The two tabs every session has: Debug and Hub Settings.
 
 local DEFAULT_TOGGLE_KEY = Enum.KeyCode.RightShift
 
@@ -65,10 +65,28 @@ local function collectDumpEntries(parent, path, folders, scripts)
 	end
 end
 
-local function dumpReplicatedStorage(session, statusLine)
+local DUMP_IDLE_TEXT = "Dump Scripts"
+
+-- Each source is { Instance, Folder }: an instance to dump, saved under that path inside the root.
+local function dumpSources(session, statusLine, sources)
 	local root = getDumpFolderName(session)
 	local folders, scripts = { root }, {}
-	collectDumpEntries(game:GetService("ReplicatedStorage"), root, folders, scripts)
+	for _, source in ipairs(sources) do
+		local path = root
+		for segment in source.Folder:gmatch("[^/]+") do
+			path = path .. "/" .. segment
+			if not table.find(folders, path) then
+				table.insert(folders, path)
+			end
+		end
+		collectDumpEntries(source.Instance, path, folders, scripts)
+	end
+
+	if #scripts == 0 then
+		session.Log("No scripts found to dump", "warn")
+		session.Notify("No scripts found to dump.", "warning")
+		return
+	end
 
 	for _, folder in ipairs(folders) do
 		if not isfolder(folder) then
@@ -94,12 +112,11 @@ local function dumpReplicatedStorage(session, statusLine)
 	local summary = string.format("Saved %d of %d scripts to workspace/%s", #scripts - failed, #scripts, root)
 	session.Log(summary, failed > 0 and "warn" or "info")
 	session.Notify(summary, failed > 0 and "warning" or "success", 6)
-	statusLine:Set("Dump ReplicatedStorage")
 end
 
 local function buildDebugConsole(session)
 	local Window = session.Window
-	local tab = Window:AddTab({ Name = "Debug Console", Icon = "Lucide:terminal" })
+	local tab = Window:AddTab({ Name = "Debug", Icon = "Lucide:terminal" })
 
 	local Console = session:WrapTab(tab:AddSubTab({ Name = "Console", Icon = "Lucide:terminal" }), "Debug")
 
@@ -134,30 +151,60 @@ local function buildDebugConsole(session)
 		end,
 	})
 
-	local dumpStatus = Console:AddLineText("Dump ReplicatedStorage")
+	local dumpStatus = Console:AddLineText(DUMP_IDLE_TEXT)
+	local dumpFolder = getDumpFolderName(session)
 	local dumping = false
+
+	local function runDump(getSources)
+		if dumping then
+			session.Notify("A dump is already running.", "warning")
+			return
+		end
+		if not (decompile and writefile and makefolder and isfolder) then
+			session.Notify("Your executor can't decompile or write files.", "error")
+			return
+		end
+		dumping = true
+		session.task.spawn(function()
+			local ok, err = pcall(function()
+				dumpSources(session, dumpStatus, getSources())
+			end)
+			dumping = false
+			dumpStatus:Set(DUMP_IDLE_TEXT)
+			if not ok then
+				session.Log("Dump failed: " .. tostring(err), "error")
+				session.Notify("The dump failed. See the console.", "error")
+			end
+		end)
+	end
+
 	Console:AddButton({
-		Text = "Dump Scripts",
-		Description = "Saves ReplicatedStorage's folders and scripts to workspace/" .. getDumpFolderName(session),
+		Text = "Dump ReplicatedStorage",
+		Description = "Saves ReplicatedStorage's folders and scripts to workspace/" .. dumpFolder,
 		Icon = "Lucide:folder-down",
 		Callback = function()
-			if dumping then
-				session.Notify("A dump is already running.", "warning")
-				return
-			end
-			if not (decompile and writefile and makefolder and isfolder) then
-				session.Notify("Your executor can't decompile or write files.", "error")
-				return
-			end
-			dumping = true
-			session.task.spawn(function()
-				local ok, err = pcall(dumpReplicatedStorage, session, dumpStatus)
-				dumping = false
-				if not ok then
-					dumpStatus:Set("Dump ReplicatedStorage")
-					session.Log("Dump failed: " .. tostring(err), "error")
-					session.Notify("The dump failed. See the console.", "error")
-				end
+			runDump(function()
+				return { { Instance = game:GetService("ReplicatedStorage"), Folder = "" } }
+			end)
+		end,
+	})
+	Console:AddButton({
+		Text = "Dump StarterPlayer",
+		Description = "Saves the character and player scripts to workspace/" .. dumpFolder .. "/StarterPlayer",
+		Icon = "Lucide:folder-down",
+		Callback = function()
+			runDump(function()
+				local StarterPlayer = game:GetService("StarterPlayer")
+				return {
+					{
+						Instance = StarterPlayer:WaitForChild("StarterCharacterScripts"),
+						Folder = "StarterPlayer/StarterCharacterScripts",
+					},
+					{
+						Instance = StarterPlayer:WaitForChild("StarterPlayerScripts"),
+						Folder = "StarterPlayer/StarterPlayerScripts",
+					},
+				}
 			end)
 		end,
 	})
@@ -280,7 +327,7 @@ local function buildHubSettings(session, Games)
 		Date = "Nov 5, 2026",
 		Changes = {
 			{ Type = "Added", Text = "17 games in one script, detected automatically" },
-			{ Type = "Added", Text = "Debug Console and Hub Settings tabs" },
+			{ Type = "Added", Text = "Debug and Hub Settings tabs" },
 			{ Type = "Added", Text = "Saved settings for each game" },
 			{ Type = "Added", Text = "Website: " .. session.Hub.WebsiteUrl },
 		},

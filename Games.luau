@@ -18,7 +18,8 @@ Games.List = {
 	{ Key = "TradingTycoon", Name = "Trading Tycoon", Icon = "Lucide:trending-up", PlaceId = 112241277471797, UniverseId = 10767912502 },
 	{ Key = "UnseenLiminality", Name = "Unseen Liminality", Icon = "Lucide:camera", PlaceId = 82797688803922, UniverseId = 9885372266 },
 	{ Key = "CombatInitiation", Name = "Combat Initiation", Icon = "Lucide:crosshair", PlaceId = 13559635034, UniverseId = 4712126054 },
-	{ Key = "KayoSports", Name = "Kayo Sports", Icon = "Lucide:trophy", PlaceId = 134767568300039, UniverseId = 10097848588 },
+	{ Key = "ThePortal", Name = "The Portal", Icon = "Lucide:orbit", PlaceId = 122003435349029, UniverseId = 9356969539 },
+	{ Key = "KayoSports",Name = "Kayo Sports", Icon = "Lucide:trophy", PlaceId = 134767568300039, UniverseId = 10097848588 },
 }
 
 -- Stop functions the old standalone scripts left in getgenv(), called once before the hub starts.

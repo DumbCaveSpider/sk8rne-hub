@@ -156,7 +156,7 @@ local function buildHubSettings(session, Games)
 		Version = session.Hub.Name .. " " .. session.Hub.Version,
 		Date = "Nov 5, 2026",
 		Changes = {
-			{ Type = "Added", Text = "16 games in one script, detected automatically" },
+			{ Type = "Added", Text = "17 games in one script, detected automatically" },
 			{ Type = "Added", Text = "Debug Console and Hub Settings tabs" },
 			{ Type = "Added", Text = "Saved settings for each game" },
 			{ Type = "Added", Text = "Website: " .. session.Hub.WebsiteUrl },

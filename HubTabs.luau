@@ -114,6 +114,166 @@ local function dumpSources(session, statusLine, sources)
 	session.Notify(summary, failed > 0 and "warning" or "success", 6)
 end
 
+-- Instance tree dump: lists what a script dump can't show, such as buttons, prompts and values.
+local TREE_MAX_LINES = 100000
+local TREE_MAX_VALUE_LENGTH = 200
+local TREE_INTERESTING_CLASSES = {
+	"ValueBase",
+	"ClickDetector",
+	"ProximityPrompt",
+	"TouchTransmitter",
+	"RemoteEvent",
+	"RemoteFunction",
+	"UnreliableRemoteEvent",
+	"BindableEvent",
+	"BindableFunction",
+	"LuaSourceContainer",
+	"TextLabel",
+	"TextButton",
+	"TextBox",
+}
+
+local function treeValueText(value)
+	local text
+	if typeof(value) == "Instance" then
+		text = value:GetFullName()
+	else
+		text = tostring(value)
+	end
+	text = text:gsub("[\r\n]+", " ")
+	if #text > TREE_MAX_VALUE_LENGTH then
+		text = text:sub(1, TREE_MAX_VALUE_LENGTH) .. "..."
+	end
+	return text
+end
+
+local function isTreeInteresting(instance)
+	for _, className in ipairs(TREE_INTERESTING_CLASSES) do
+		if instance:IsA(className) then
+			return true
+		end
+	end
+	return next(instance:GetAttributes()) ~= nil
+end
+
+local function describeTreeInstance(instance)
+	local line = string.format("%s [%s]", instance.Name, instance.ClassName)
+	if instance:IsA("ValueBase") then
+		line ..= " = " .. treeValueText(instance.Value)
+	elseif instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+		line ..= ' text="' .. treeValueText(instance.Text) .. '"'
+	elseif instance:IsA("ProximityPrompt") then
+		line ..= string.format(
+			' action="%s" object="%s" hold=%s range=%s',
+			treeValueText(instance.ActionText),
+			treeValueText(instance.ObjectText),
+			tostring(instance.HoldDuration),
+			tostring(instance.MaxActivationDistance)
+		)
+	elseif instance:IsA("ClickDetector") then
+		line ..= " range=" .. tostring(instance.MaxActivationDistance)
+	end
+
+	local attributes = {}
+	for name, value in pairs(instance:GetAttributes()) do
+		table.insert(attributes, name .. "=" .. treeValueText(value))
+	end
+	if #attributes > 0 then
+		table.sort(attributes)
+		line ..= " {" .. table.concat(attributes, ", ") .. "}"
+	end
+	return line
+end
+
+-- Keeps files readable: an instance is listed only if it, or something inside it, is interesting.
+-- Returns the number of lines saved and whether the file hit the line limit.
+local function writeInstanceTree(session, root, path, skip)
+	local keep = {}
+	for index, descendant in ipairs(root:GetDescendants()) do
+		local ok, interesting = pcall(isTreeInteresting, descendant)
+		if ok and interesting and not (skip and skip(descendant)) then
+			local current = descendant
+			while current and current ~= root and not keep[current] do
+				keep[current] = true
+				current = current.Parent
+			end
+		end
+		if index % 5000 == 0 then
+			session.task.wait()
+		end
+	end
+
+	local lines = { root:GetFullName() }
+	local truncated = false
+
+	local function visit(parent, depth)
+		for _, child in ipairs(parent:GetChildren()) do
+			if truncated then
+				return
+			end
+			if keep[child] then
+				local ok, line = pcall(describeTreeInstance, child)
+				table.insert(lines, string.rep("  ", depth) .. (ok and line or child.Name .. " [unreadable]"))
+				if #lines >= TREE_MAX_LINES then
+					truncated = true
+					table.insert(lines, "... stopped at the line limit")
+					return
+				end
+				if #lines % 5000 == 0 then
+					session.task.wait()
+				end
+				visit(child, depth + 1)
+			end
+		end
+	end
+	visit(root, 1)
+
+	writefile(path, table.concat(lines, "\n"))
+	return #lines, truncated
+end
+
+local function dumpInstanceTrees(session, statusLine)
+	local Players = game:GetService("Players")
+	local localPlayer = Players.LocalPlayer
+	local root = getDumpFolderName(session)
+	local folder = root .. "/InstanceTree"
+	for _, path in ipairs({ root, folder }) do
+		if not isfolder(path) then
+			makefolder(path)
+		end
+	end
+
+	local function isInPlayerCharacter(instance)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player.Character and instance:IsDescendantOf(player.Character) then
+				return true
+			end
+		end
+		return false
+	end
+
+	local trees = {
+		{ Name = "Workspace", Instance = workspace, Skip = isInPlayerCharacter },
+		{ Name = "ReplicatedStorage", Instance = game:GetService("ReplicatedStorage") },
+		{ Name = "LocalPlayer", Instance = localPlayer },
+	}
+
+	local total = 0
+	for _, tree in ipairs(trees) do
+		statusLine:Set("Listing " .. tree.Name)
+		local count, truncated = writeInstanceTree(session, tree.Instance, folder .. "/" .. tree.Name .. ".txt", tree.Skip)
+		total += count
+		session.Log(
+			string.format("%s: %d lines%s", tree.Name, count, truncated and " (stopped at the line limit)" or ""),
+			truncated and "warn" or "info"
+		)
+	end
+
+	local summary = string.format("Saved %d lines to workspace/%s", total, folder)
+	session.Log(summary)
+	session.Notify(summary, "success", 6)
+end
+
 local function buildDebugConsole(session)
 	local Window = session.Window
 	local tab = Window:AddTab({ Name = "Debug", Icon = "Lucide:terminal" })
@@ -155,20 +315,18 @@ local function buildDebugConsole(session)
 	local dumpFolder = getDumpFolderName(session)
 	local dumping = false
 
-	local function runDump(getSources)
+	local function startDumpTask(work)
 		if dumping then
 			session.Notify("A dump is already running.", "warning")
 			return
 		end
-		if not (decompile and writefile and makefolder and isfolder) then
-			session.Notify("Your executor can't decompile or write files.", "error")
+		if not (writefile and makefolder and isfolder) then
+			session.Notify("Your executor can't write files.", "error")
 			return
 		end
 		dumping = true
 		session.task.spawn(function()
-			local ok, err = pcall(function()
-				dumpSources(session, dumpStatus, getSources())
-			end)
+			local ok, err = pcall(work)
 			dumping = false
 			dumpStatus:Set(DUMP_IDLE_TEXT)
 			if not ok then
@@ -178,6 +336,26 @@ local function buildDebugConsole(session)
 		end)
 	end
 
+	local function runDump(getSources)
+		if not decompile then
+			session.Notify("Your executor can't decompile scripts.", "error")
+			return
+		end
+		startDumpTask(function()
+			dumpSources(session, dumpStatus, getSources())
+		end)
+	end
+
+	Console:AddButton({
+		Text = "Dump Instance Tree",
+		Description = "Lists buttons, prompts, values and labels in workspace/" .. dumpFolder .. "/InstanceTree",
+		Icon = "Lucide:list-tree",
+		Callback = function()
+			startDumpTask(function()
+				dumpInstanceTrees(session, dumpStatus)
+			end)
+		end,
+	})
 	Console:AddButton({
 		Text = "Dump ReplicatedStorage",
 		Description = "Saves ReplicatedStorage's folders and scripts to workspace/" .. dumpFolder,

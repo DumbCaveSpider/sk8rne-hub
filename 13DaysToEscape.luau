@@ -434,8 +434,23 @@ local function triggerPrompt(prompt)
 	return true
 end
 
+-- The server reports the number of the book being read as this event's last argument.
+-- Tracking it lets the farm tell whether the book it holds is the one the job asked for.
+local pickedBookNumber = nil
+task.spawn(function()
+	local remote = ReplicatedStorage:WaitForChild("PrisonBookPickup", 10)
+	if remote and ctx:Alive() then
+		ctx:Connect(remote.OnClientEvent, function(message, player, _, _, _, _, bookNumber)
+			if message == "Start" and player == LocalPlayer then
+				pickedBookNumber = tonumber(bookNumber)
+			end
+		end)
+	end
+end)
+
 local nextCashAt = 0
 local nextBookAt = 0
+local nextBookReturnAt = 0
 local lastCashTry = {}
 
 local function cashStep()
@@ -480,7 +495,25 @@ local function bookStep()
 	local character = LocalPlayer.Character
 	local tool = character and character:FindFirstChildOfClass("Tool")
 	if tool and tool:GetAttribute("PrisonBook") then
-		-- Holding the book: hand it to the clerk.
+		if now < nextBookReturnAt then
+			nextBookAt = now + 0.5
+			return
+		end
+		-- The server told us which book this is. If it is not the requested one, return it.
+		if pickedBookNumber and pickedBookNumber ~= requested then
+			for prompt in pairs(takeBookPrompts) do
+				if prompt:IsDescendantOf(workspace) and prompt:GetAttribute("BookReturnOnly") == true then
+					prompt.Enabled = true
+					triggerPrompt(prompt)
+					nextBookReturnAt = now + 1.5
+					nextBookAt = now + 1.5
+					return
+				end
+			end
+			nextBookAt = now + 1
+			return
+		end
+		-- Holding the requested book: hand it to the clerk.
 		if libraryJobPrompt and libraryJobPrompt:IsDescendantOf(workspace) then
 			triggerPrompt(libraryJobPrompt)
 			nextBookAt = now + 0.8
@@ -489,6 +522,7 @@ local function bookStep()
 		end
 		return
 	end
+	pickedBookNumber = nil
 	for prompt in pairs(takeBookPrompts) do
 		if prompt:IsDescendantOf(workspace) then
 			if
@@ -497,6 +531,7 @@ local function bookStep()
 				and prompt:GetAttribute("BookReturnOnly") ~= true
 				and (tonumber(prompt:GetAttribute("BookStock")) or 0) > 0
 			then
+				prompt.Enabled = true
 				triggerPrompt(prompt)
 				nextBookAt = now + 0.8
 				return

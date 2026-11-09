@@ -42,7 +42,6 @@ local Settings = {
 	AutoKillAll = false,
 	KillRange = 60,
 	AutoDash = false,
-	DashRange = 10,
 	AutoPerkOffer = false,
 	PerkPickIndex = 1,
 	NoCooldown = false,
@@ -427,22 +426,36 @@ local function autoDashStep()
 	if now < nextDashAt then
 		return
 	end
+	nextDashAt = now + 1.2
 	local myRoot = getRootPart()
 	local humanoid = getHumanoid()
 	if not myRoot or not humanoid then
 		return
 	end
-	nextDashAt = now + 1.2
-	-- Dash regardless of range; steer away from a noob when one is close enough.
-	local noob, distance = nearestNoob()
-	if noob and distance and distance <= Settings.DashRange then
-		local away = myRoot.Position - noob.Position
-		if away.Magnitude > 0.1 then
-			humanoid:MoveTo(myRoot.Position + away.Unit * 25)
-		end
-	end
+	-- Pure dash: the game dashes in the current walk/facing direction, so there is no
+	-- dodge or steering logic here. Log the movement so we can prove it actually dashed.
+	local before = myRoot.Position
+	local facing = myRoot.CFrame.LookVector
+	local moveDir = humanoid.MoveDirection
 	fireRemote("Attack", "dash")
-	logOnce("dash_ok", "auto dash: dashing", "info")
+	task.delay(0.35, function()
+		local after = getRootPart()
+		local moved = after and (after.Position - before).Magnitude or -1
+		ctx:Log(
+			string.format(
+				"[NI] auto dash: fired | moved=%.1f studs | facing=%.2f,%.2f,%.2f | walking=%.2f,%.2f,%.2f",
+				moved,
+				facing.X,
+				facing.Y,
+				facing.Z,
+				moveDir.X,
+				moveDir.Y,
+				moveDir.Z
+			),
+			moved >= 3 and "info" or "warn"
+		)
+	end)
+	logOnce("dash_ok", "auto dash: dashing in the walking direction", "info")
 end
 
 -- Auto-pick perks only when the SERVER sends an offer. Nothing is fired client-side.
@@ -731,27 +744,13 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
-	Text = "Auto Dash (Dodge)",
-	Description = "Dashes away when a noob gets into melee range",
+	Text = "Auto Dash",
+	Description = "Dashes in the direction you're walking or facing",
 	Icon = "Lucide:wind",
 	Default = false,
 	Flag = "ni_auto_dash",
 	Callback = function(value)
 		Settings.AutoDash = value
-	end,
-})
-Player:AddSlider({
-	Text = "Dash Trigger Range",
-	Description = "How close a noob has to get before dashing",
-	Icon = "Lucide:radar",
-	Min = 4,
-	Max = 40,
-	Default = 10,
-	Increment = 1,
-	Suffix = " studs",
-	Flag = "ni_dash_range",
-	Callback = function(value)
-		Settings.DashRange = value
 	end,
 })
 Player:AddToggle({

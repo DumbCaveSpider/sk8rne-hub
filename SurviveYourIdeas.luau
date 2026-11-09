@@ -681,20 +681,67 @@ end
 
 local function applyAntiRagdoll()
 	local character = getCharacter()
-	if not character then
+	local humanoid = getHumanoid()
+	if not character or not humanoid then
 		return
 	end
-	if character:GetAttribute("IsRagdolled") then
+	local ragdolled = character:GetAttribute("Ragdolled")
+	local state = humanoid:GetState()
+	if
+		ragdolled
+		or state == Enum.HumanoidStateType.Physics
+		or state == Enum.HumanoidStateType.FallingDown
+		or state == Enum.HumanoidStateType.PlatformStanding
+	then
 		pcall(function()
-			character:SetAttribute("IsRagdolled", false)
+			character:SetAttribute("Ragdolled", false)
 		end)
-		logOnce("ragdoll_ok", "anti-ragdoll: cleared IsRagdolled", "info")
-	end
-	local humanoid = getHumanoid()
-	if humanoid and humanoid.PlatformStand then
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
 		humanoid.PlatformStand = false
+		if workspace.CurrentCamera then
+			workspace.CurrentCamera.CameraSubject = humanoid
+		end
+		logOnce("ragdoll_ok", "anti-ragdoll: forcing the getting-up state", "info")
 	end
 end
+
+-- The game ragdolls you from the server through RagdollRemotes.RagdollState.
+-- Our connection is added after the game's, so it can undo the physics state.
+task.spawn(function()
+	local ragdollRemotes = ReplicatedStorage:WaitForChild("RagdollRemotes", 15)
+	local ragdollState = ragdollRemotes and ragdollRemotes:WaitForChild("RagdollState", 15)
+	if not (ragdollState and ragdollState:IsA("RemoteEvent")) then
+		logOnce("ragdoll_remote_missing", "anti-ragdoll: RagdollRemotes.RagdollState not found", "warn")
+		return
+	end
+	ctx:Connect(ragdollState.OnClientEvent, function(state)
+		logOnce("ragdoll_event", "anti-ragdoll: RagdollState event received (" .. tostring(state) .. ")", "info")
+		if not Settings.AntiRagdoll then
+			return
+		end
+		local character = getCharacter()
+		local humanoid = getHumanoid()
+		if not character or not humanoid then
+			return
+		end
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, true)
+		pcall(function()
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+		humanoid.PlatformStand = false
+		pcall(function()
+			character:SetAttribute("Ragdolled", false)
+		end)
+		if workspace.CurrentCamera then
+			workspace.CurrentCamera.CameraSubject = humanoid
+		end
+		logOnce("ragdoll_blocked", "anti-ragdoll: countered a RagdollState event", "info")
+	end)
+	logOnce("ragdoll_hooked", "anti-ragdoll: RagdollState is being countered", "info")
+end)
 
 local function infiniteJump()
 	local humanoid = getHumanoid()

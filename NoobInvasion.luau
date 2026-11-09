@@ -54,7 +54,8 @@ local Settings = {
 	AutoSuper = false,
 	AutoAbilityPick = false,
 	AbilityPickIndex = 1,
-	AutoUppercut = false,
+	AutoAbility = false,
+	DebugLogs = false,
 	AutoMove = false,
 	MoveId = "Beam",
 	AutoRevive = false,
@@ -352,11 +353,13 @@ local chasePath = nil
 local chaseWaypoint = 1
 local lastRepathAt = 0
 local chaseSpeedApplied = false
+local lastMoveToTarget = nil
 
 local function clearChasePath()
 	chasePath = nil
 	chaseWaypoint = 1
 	chaseTarget = nil
+	lastMoveToTarget = nil
 	if chaseSpeedApplied then
 		chaseSpeedApplied = false
 		local humanoid = getHumanoid()
@@ -422,7 +425,10 @@ local function autoChaseStep()
 	end
 	local waypoints = chasePath and chasePath:GetWaypoints()
 	if not waypoints or chaseWaypoint > #waypoints then
-		humanoid:MoveTo(noob.Position)
+		if not lastMoveToTarget or (lastMoveToTarget - noob.Position).Magnitude > 2 then
+			lastMoveToTarget = noob.Position
+			humanoid:MoveTo(noob.Position)
+		end
 		chaseTarget = nil
 		lastRepathAt = 0
 		return
@@ -431,9 +437,15 @@ local function autoChaseStep()
 	if waypoint.Action == Enum.PathWaypointAction.Jump then
 		humanoid.Jump = true
 	end
-	humanoid:MoveTo(waypoint.Position)
+	-- Re-issuing MoveTo every tick resets the walk and makes the chase stutter,
+	-- so only issue it when the waypoint actually changes.
+	if lastMoveToTarget ~= waypoint then
+		lastMoveToTarget = waypoint
+		humanoid:MoveTo(waypoint.Position)
+	end
 	if (myRoot.Position - waypoint.Position).Magnitude < 3 then
 		chaseWaypoint = chaseWaypoint + 1
+		lastMoveToTarget = nil
 	end
 	logOnce("chase_ok", "auto chase: pathfinding + sprinting to the nearest noob", "info")
 end
@@ -518,15 +530,70 @@ local function autoAbilityPickStep()
 	logOnce("ability_ok", "auto ability: picking option " .. tostring(Settings.AbilityPickIndex), "info")
 end
 
-local nextUppercutAt = 0
-local function autoUppercutStep()
+local MovesModule = nil
+do
+	local module = ReplicatedStorage:WaitForChild("Moves", 10)
+	if module then
+		local ok, result = pcall(require, module)
+		if ok then
+			MovesModule = result
+		end
+	end
+end
+
+local function equippedMove()
+	return LocalPlayer:GetAttribute("MatchMove") or LocalPlayer:GetAttribute("Move") or "Uppercut"
+end
+
+local function moveCooldown(id)
+	if MovesModule and type(MovesModule.BY) == "table" and MovesModule.BY[id] and MovesModule.BY[id].cd then
+		return MovesModule.BY[id].cd
+	end
+	return 4
+end
+
+local nextAbilityCastAt = 0
+local function autoAbilityStep()
 	local now = os.clock()
-	if now < nextUppercutAt then
+	if now < nextAbilityCastAt then
 		return
 	end
-	nextUppercutAt = now + 3.2
-	fireRemote("Attack", "uppercut")
-	logOnce("uppercut_ok", "auto uppercut: launching noobs", "info")
+	local id = equippedMove()
+	nextAbilityCastAt = now + moveCooldown(id)
+	fireRemote("Attack", id)
+	logOnce("ability_cast_ok", "auto ability: casting the equipped move", "info")
+end
+
+local nextDebugAt = 0
+local function debugStep()
+	if not Settings.DebugLogs then
+		return
+	end
+	local now = os.clock()
+	if now < nextDebugAt then
+		return
+	end
+	nextDebugAt = now + 2
+	local noob, distance = nearestNoob()
+	local humanoid = getHumanoid()
+	ctx:Log(
+		string.format(
+			"[NI][debug] attack=%s killAll=%s dash=%s chase=%s super=%s ability=%s abilityPick=%s perk=%s revive=%s | noob=%s wp=%d speed=%s",
+			tostring(Settings.AutoAttack),
+			tostring(Settings.AutoKillAll),
+			tostring(Settings.AutoDash),
+			tostring(Settings.AutoChase),
+			tostring(Settings.AutoSuper),
+			tostring(Settings.AutoAbility),
+			tostring(Settings.AutoAbilityPick),
+			tostring(Settings.AutoPerkOffer),
+			tostring(Settings.AutoRevive),
+			distance and string.format("%.1f", distance) or "none",
+			chaseWaypoint,
+			humanoid and string.format("%.1f", humanoid.WalkSpeed) or "?"
+		),
+		"info"
+	)
 end
 
 local MOVE_LIST = {
@@ -598,6 +665,7 @@ local Player = ctx:SubTab("Player", "Lucide:user")
 local Combat = ctx:SubTab("Combat", "Lucide:swords")
 local Farm = ctx:SubTab("Farm", "Lucide:coins")
 local Visuals = ctx:SubTab("Visuals", "Lucide:eye")
+local DebugTab = ctx:SubTab("Debug", "Lucide:bug")
 
 Player:AddSection("Movement", "Lucide:gauge")
 Player:AddToggle({
@@ -762,13 +830,13 @@ Combat:AddToggle({
 	end,
 })
 Combat:AddToggle({
-	Text = "Auto Uppercut",
-	Description = "Fires the uppercut every 3.2s",
-	Icon = "Lucide:arrow-up",
+	Text = "Auto Ability",
+	Description = "Casts whichever move you have equipped, on its own cooldown",
+	Icon = "Lucide:sparkles",
 	Default = false,
-	Flag = "ni_auto_uppercut",
+	Flag = "ni_auto_ability_cast",
 	Callback = function(value)
-		Settings.AutoUppercut = value
+		Settings.AutoAbility = value
 	end,
 })
 Combat:AddSection("Perks", "Lucide:sparkles")
@@ -925,8 +993,7 @@ Farm:AddButton({
 	end,
 })
 
-Visuals:AddSection("ESP", "Lucide:eye")
-Visuals:AddToggle({
+Visuals:AddSection("ESP", "Lucide:eye")Visuals:AddToggle({
 	Text = "Noob ESP",
 	Description = "Highlights every noob with health and distance",
 	Icon = "Lucide:users",
@@ -958,6 +1025,18 @@ Visuals:AddSlider({
 	Flag = "ni_esp_distance",
 	Callback = function(value)
 		Settings.EspDistance = value
+	end,
+})
+
+DebugTab:AddSection("Logging", "Lucide:bug")
+DebugTab:AddToggle({
+	Text = "Debug Logs",
+	Description = "Prints the live state of every feature every 2s",
+	Icon = "Lucide:bug",
+	Default = false,
+	Flag = "ni_debug_logs",
+	Callback = function(value)
+		Settings.DebugLogs = value
 	end,
 })
 
@@ -1021,8 +1100,11 @@ task.spawn(function()
 		if Settings.AutoAbilityPick then
 			pcall(autoAbilityPickStep)
 		end
-		if Settings.AutoUppercut then
-			pcall(autoUppercutStep)
+		if Settings.AutoAbility then
+			pcall(autoAbilityStep)
+		end
+		if Settings.DebugLogs then
+			pcall(debugStep)
 		end
 		if Settings.AutoMove then
 			pcall(autoMoveStep)
@@ -1054,7 +1136,8 @@ end)
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.InfiniteJump, Settings.Godmode = false, false
-	Settings.AutoAttack, Settings.AutoUppercut, Settings.AutoMove = false, false, false
+	Settings.AutoAttack, Settings.AutoAbility, Settings.AutoMove = false, false, false
+	Settings.DebugLogs = false
 	Settings.AutoKillAll = false
 	Settings.AutoDash = false
 	Settings.AutoPerkOffer = false

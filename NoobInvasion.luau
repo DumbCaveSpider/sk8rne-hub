@@ -4,7 +4,6 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local PathfindingService = game:GetService("PathfindingService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -348,18 +347,13 @@ faceNearestNoob = function()
 	return false
 end
 
-local chaseTarget = nil
-local chasePath = nil
-local chaseWaypoint = 1
-local lastRepathAt = 0
+local chaseTargetPosition = nil
 local chaseSpeedApplied = false
-local lastMoveToTarget = nil
+local lastChaseMoveAt = 0
 
 local function clearChasePath()
-	chasePath = nil
-	chaseWaypoint = 1
-	chaseTarget = nil
-	lastMoveToTarget = nil
+	chaseTargetPosition = nil
+	lastChaseMoveAt = 0
 	if chaseSpeedApplied then
 		chaseSpeedApplied = false
 		local humanoid = getHumanoid()
@@ -367,29 +361,6 @@ local function clearChasePath()
 			humanoid.WalkSpeed = Settings.SpeedOn and Settings.Speed or 16
 		end
 	end
-end
-
-local function buildChasePath(noob)
-	local myRoot = getRootPart()
-	if not myRoot or not noob then
-		return false
-	end
-	local path = PathfindingService:CreatePath({
-		AgentRadius = 3,
-		AgentHeight = 5,
-		AgentCanJump = true,
-		AgentJumpHeight = 7,
-		AgentMaxSlope = 45,
-	})
-	local ok = pcall(function()
-		path:ComputeAsync(myRoot.Position, noob.Position)
-	end)
-	if not ok or path.Status ~= Enum.PathStatus.Success then
-		return false
-	end
-	chasePath = path
-	chaseWaypoint = 2
-	return true
 end
 
 local nextChaseAt = 0
@@ -414,40 +385,14 @@ local function autoChaseStep()
 		humanoid.WalkSpeed = Settings.ChaseSpeed
 		chaseSpeedApplied = true
 	end
-	local targetMoved = chaseTarget and (noob.Position - chaseTarget.Position).Magnitude > 4
-	if not chasePath or chaseTarget ~= noob or targetMoved or now - lastRepathAt > 1 then
-		chaseTarget = noob
-		lastRepathAt = now
-		if not buildChasePath(noob) then
-			humanoid:MoveTo(noob.Position)
-			return
-		end
+	-- Walk straight at the noob. Only re-issue MoveTo when the target has actually moved,
+	-- because calling it every tick restarts the walk and causes the stutter.
+	if not chaseTargetPosition or (noob.Position - chaseTargetPosition).Magnitude > 2 or now - lastChaseMoveAt > 0.5 then
+		chaseTargetPosition = noob.Position
+		lastChaseMoveAt = now
+		humanoid:MoveTo(noob.Position)
 	end
-	local waypoints = chasePath and chasePath:GetWaypoints()
-	if not waypoints or chaseWaypoint > #waypoints then
-		if not lastMoveToTarget or (lastMoveToTarget - noob.Position).Magnitude > 2 then
-			lastMoveToTarget = noob.Position
-			humanoid:MoveTo(noob.Position)
-		end
-		chaseTarget = nil
-		lastRepathAt = 0
-		return
-	end
-	local waypoint = waypoints[chaseWaypoint]
-	if waypoint.Action == Enum.PathWaypointAction.Jump then
-		humanoid.Jump = true
-	end
-	-- Re-issuing MoveTo every tick resets the walk and makes the chase stutter,
-	-- so only issue it when the waypoint actually changes.
-	if lastMoveToTarget ~= waypoint then
-		lastMoveToTarget = waypoint
-		humanoid:MoveTo(waypoint.Position)
-	end
-	if (myRoot.Position - waypoint.Position).Magnitude < 3 then
-		chaseWaypoint = chaseWaypoint + 1
-		lastMoveToTarget = nil
-	end
-	logOnce("chase_ok", "auto chase: pathfinding + sprinting to the nearest noob", "info")
+	logOnce("chase_ok", "auto chase: walking straight to the nearest noob", "info")
 end
 
 local function autoDashStep()
@@ -592,9 +537,10 @@ local function debugStep()
 	nextDebugAt = now + 2
 	local noob, distance = nearestNoob()
 	local humanoid = getHumanoid()
+	local myRoot = getRootPart()
 	ctx:Log(
 		string.format(
-			"[NI][debug] attack=%s killAll=%s dash=%s chase=%s super=%s ability=%s abilityPick=%s perk=%s revive=%s | noob=%s wp=%d speed=%s",
+			"[NI][debug] attack=%s killAll=%s dash=%s chase=%s super=%s ability=%s abilityPick=%s perk=%s revive=%s | noob=%s moving=%s speed=%s",
 			tostring(Settings.AutoAttack),
 			tostring(Settings.AutoKillAll),
 			tostring(Settings.AutoDash),
@@ -605,7 +551,7 @@ local function debugStep()
 			tostring(Settings.AutoPerkOffer),
 			tostring(Settings.AutoRevive),
 			distance and string.format("%.1f", distance) or "none",
-			chaseWaypoint,
+			tostring(myRoot ~= nil),
 			humanoid and string.format("%.1f", humanoid.WalkSpeed) or "?"
 		),
 		"info"

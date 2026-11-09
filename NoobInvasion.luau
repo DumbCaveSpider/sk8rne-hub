@@ -497,21 +497,15 @@ task.spawn(function()
 		return
 	end
 	ctx:Connect(offerRemote.OnClientEvent, function(offer)
-		logOnce("ability_offer_seen", "ability offer received from the server", "info")
+		logOnce("ability_offer_seen", "ability offer received from the server: " .. tostring(offer), "info")
 		if not Settings.AutoAbilityPick then
 			return
 		end
-		local id = offer
-		if type(offer) == "table" then
-			id = offer[Settings.AbilityPickIndex] or offer[1]
-		end
-		if id == nil then
-			id = Settings.AbilityPickIndex
-		end
+		-- The game's choice UI sends a boolean: true accepts the offered ability.
 		pcall(function()
-			offerRemote:FireServer(id)
+			offerRemote:FireServer(true)
 		end)
-		ctx:Log("[NI] auto ability pick: picked " .. tostring(id), "info")
+		ctx:Log("[NI] auto ability pick: accepted " .. tostring(offer), "info")
 	end)
 	logOnce("ability_offer_hooked", "auto ability pick: watching for server offers", "info")
 end)
@@ -546,14 +540,9 @@ local function autoAbilityStep()
 	end
 	local id = equippedMove()
 	nextAbilityCastAt = now + moveCooldown(id)
-	local myRoot = getRootPart()
-	local noob = nearestNoob()
-	local aim = (noob and noob.Position)
-		or (myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 12))
-		or Vector3.zero
-	-- Special attack form: "special", <moveId>, nil, <aim position>
-	fireRemote("Attack", "special", id, nil, aim)
-	logOnce("ability_cast_ok", "auto ability: casting the equipped move's special", "info")
+	-- Moves are used by id; "special" is only the server's VFX event.
+	fireRemote("Attack", id)
+	logOnce("ability_cast_ok", "auto ability: using the equipped move", "info")
 end
 
 local nextDebugAt = 0

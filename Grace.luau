@@ -29,6 +29,7 @@ local Settings = {
 	AutoStartRound = false,
 	StopWave = 0,
 	AutoParry = false,
+	BestModifier = false,
 }
 
 -- What each entity actually does, shown in the event panel.
@@ -480,6 +481,40 @@ local function autoParry()
 	end)
 end
 
+-- Saferoom modifier vote: each option is a modifier whose Reward attribute is its XP multiplier.
+-- The vote UI shows four of them and votes via Modifiers.VoteFor, so we pick the highest Reward.
+task.spawn(function()
+	local modifiers = ReplicatedStorage:WaitForChild("Modifiers", 10)
+	if not modifiers then
+		return
+	end
+	local startVote = modifiers:WaitForChild("StartVote", 10)
+	local voteFor = modifiers:WaitForChild("VoteFor", 10)
+	local defs = modifiers:WaitForChild("Modifiers", 10)
+	if not (startVote and voteFor and defs) then
+		return
+	end
+	ctx:Connect(startVote.OnClientEvent, function(...)
+		if not Settings.BestModifier then
+			return
+		end
+		local bestIndex, bestReward = nil, -math.huge
+		for index = 1, select("#", ...) do
+			local id = select(index, ...)
+			local instance = defs:FindFirstChild(id, true)
+			local reward = instance and (instance:GetAttribute("Reward") or 0)
+			if reward and reward > bestReward then
+				bestIndex, bestReward = index, reward
+			end
+		end
+		if bestIndex then
+			pcall(function()
+				voteFor:FireServer(bestIndex)
+			end)
+		end
+	end)
+end)
+
 ---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
@@ -638,6 +673,16 @@ Reprieve:AddToggle({
 		Settings.AutoParry = value
 	end,
 })
+Reprieve:AddToggle({
+	Text = "Pick Best Modifier",
+	Description = "Votes for the vote option with the highest XP multiplier",
+	Icon = "Lucide:trending-up",
+	Default = false,
+	Flag = "gr_best_modifier",
+	Callback = function(value)
+		Settings.BestModifier = value
+	end,
+})
 
 Reprieve:AddSection("Rounds", "Lucide:repeat")
 Reprieve:AddToggle({
@@ -756,6 +801,7 @@ ctx:OnCleanup(function()
 	Settings.EntityEsp, Settings.DoorWaypoint, Settings.EventNotifier = false, false, false
 	Settings.NoParryCooldown, Settings.AutoStartRound = false, false
 	Settings.AutoParry = false
+	Settings.BestModifier = false
 	if parryAttachment then
 		parryAttachment:Destroy()
 		parryAttachment = nil

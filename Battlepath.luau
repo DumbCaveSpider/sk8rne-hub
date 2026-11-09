@@ -27,6 +27,7 @@ local Settings = {
 	JumpOn = false,
 	JumpPower = 90,
 	InfiniteDash = false,
+	InfiniteStamina = false,
 	AutoDash = false,
 	AutoSlide = false,
 	EnemyEsp = false,
@@ -239,6 +240,43 @@ local function applyDash()
 	end
 end
 
+-- Dash charges live in a local inside the game's controller, so we bypass it: on every dash
+-- input we add our own velocity burst when the game's own dash did not fire.
+local function customDash()
+	if not Settings.InfiniteStamina then
+		return
+	end
+	local character = getCharacter()
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = getHumanoid()
+	if not (root and humanoid) then
+		return
+	end
+	if root:FindFirstChild("DashVelocity") or root:FindFirstChild("Sk8rneDash") then
+		return
+	end
+	local direction = humanoid.MoveDirection
+	if direction.Magnitude < 0.1 then
+		local camera = workspace.CurrentCamera
+		direction = camera and camera.CFrame.LookVector or root.CFrame.LookVector
+	end
+	local velocity = Instance.new("BodyVelocity")
+	velocity.Name = "Sk8rneDash"
+	velocity.MaxForce = Vector3.new(100000, 100000, 100000)
+	velocity.Velocity = direction.Unit * 75 + Vector3.new(0, 10, 0)
+	velocity.Parent = root
+	ctx:Track(velocity)
+	task.delay(0.25, function()
+		if velocity and velocity.Parent then
+			velocity:Destroy()
+		end
+	end)
+end
+
+if DashInput then
+	ctx:Connect(DashInput.Began.Event, customDash)
+end
+
 local function fireEvent(module, eventName)
 	if not module then
 		return
@@ -396,6 +434,16 @@ Player:AddToggle({
 	Flag = "bp_infinite_dash",
 	Callback = function(value)
 		Settings.InfiniteDash = value
+	end,
+})
+Player:AddToggle({
+	Text = "Infinite Stamina",
+	Description = "Dashes even when the stamina bar is empty",
+	Icon = "Lucide:zap",
+	Default = false,
+	Flag = "bp_infinite_stamina",
+	Callback = function(value)
+		Settings.InfiniteStamina = value
 	end,
 })
 Player:AddToggle({
@@ -573,7 +621,8 @@ end)
 
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
-	Settings.InfiniteDash, Settings.AutoDash, Settings.AutoSlide = false, false, false
+	Settings.InfiniteDash, Settings.InfiniteStamina = false, false
+	Settings.AutoDash, Settings.AutoSlide = false, false
 	Settings.AutoParry, Settings.AutoFire, Settings.HitAll = false, false, false
 	clearEsp()
 	local humanoid = getHumanoid()

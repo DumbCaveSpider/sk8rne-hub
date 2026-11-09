@@ -182,6 +182,7 @@ local Settings = {
 	Disable3D = false,
 	WeaponPick = "Fists",
 	EspLoot = false,
+	EspPlayers = false,
 	AutoFarmLoot = false,
 	IdleNoCast = false,
 	AutoRevivePlayers = false,
@@ -317,6 +318,33 @@ local function espStep()
 						local entry = espEntries[model]
 						if not entry then
 							entry = createEsp(model, part, color, text)
+						end
+						entry.Gui.Adornee = part
+						entry.Label.Text = text
+					end
+				end
+			end
+		end
+	end
+	if Settings.EspPlayers then
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer and player.Character then
+				local character = player.Character
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+				local part = character:FindFirstChild("HumanoidRootPart")
+				if humanoid and humanoid.Health > 0 and part then
+					local distance = (part.Position - myRoot.Position).Magnitude
+					if distance <= Settings.EspDistance then
+						local text = string.format(
+							"%s\n%d HP  %d studs",
+							player.Name,
+							math.ceil(humanoid.Health),
+							math.floor(distance)
+						)
+						visible[character] = true
+						local entry = espEntries[character]
+						if not entry then
+							entry = createEsp(character, part, Color3.fromRGB(80, 170, 255), text)
 						end
 						entry.Gui.Adornee = part
 						entry.Label.Text = text
@@ -1502,6 +1530,16 @@ Visuals:AddToggle({
 	end,
 })
 Visuals:AddToggle({
+	Text = "Player ESP",
+	Description = "Highlights other players with their health and distance",
+	Icon = "Lucide:user-round",
+	Default = false,
+	Flag = "ni_esp_players",
+	Callback = function(value)
+		Settings.EspPlayers = value
+	end,
+})
+Visuals:AddToggle({
 	Text = "Loot ESP",
 	Description = "Highlights dropped cash and medkits",
 	Icon = "Lucide:coins",
@@ -1687,6 +1725,7 @@ ctx:OnCleanup(function()
 	Settings.AutoRevive, Settings.EspNoob, Settings.EspBoss = false, false, false
 	Settings.AutoRevivePlayers = false
 	Settings.EspLoot, Settings.AutoFarmLoot = false, false
+	Settings.EspPlayers = false
 	for model, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

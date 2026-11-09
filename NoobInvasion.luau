@@ -558,6 +558,29 @@ end
 
 local nextRetreatAt = 0
 
+local function findMedkit(maxDistance)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") and descendant.Enabled then
+			local parent = descendant.Parent
+			if parent and parent:IsA("BasePart") then
+				local lower = (parent.Name .. " " .. descendant.Name):lower()
+				if lower:find("med") or lower:find("kit") or lower:find("health") then
+					local distance = (parent.Position - myRoot.Position).Magnitude
+					if distance <= maxDistance and distance < bestDistance then
+						best, bestDistance = descendant, distance
+					end
+				end
+			end
+		end
+	end
+	return best
+end
+
 local function lowHpStep()
 	if not Settings.LowHpRetreat then
 		return
@@ -572,7 +595,16 @@ local function lowHpStep()
 	if percent > Settings.LowHpThreshold or now < nextRetreatAt then
 		return
 	end
-	nextRetreatAt = now + 5
+	nextRetreatAt = now + 4
+	-- Prefer a dropped medkit (noobs drop them); health itself is server-owned.
+	local medkit = findMedkit(80)
+	if medkit then
+		pcall(function()
+			fireproximityprompt(medkit)
+		end)
+		ctx:Log(string.format("[NI] low hp: used a medkit at %.0f%% health", percent), "warn")
+		return
+	end
 	local noob = nearestNoob()
 	local away
 	if noob then
@@ -588,12 +620,8 @@ local function lowHpStep()
 	if away.Magnitude > 0.1 then
 		humanoid:MoveTo(myRoot.Position + away.Unit * 30)
 	end
-	-- Native dash away, then a small best-effort heal (the server owns real health).
 	pressKey(Enum.KeyCode.Q)
-	pcall(function()
-		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 10)
-	end)
-	ctx:Log(string.format("[NI] low hp: retreating and healing at %.0f%% health", percent), "warn")
+	ctx:Log(string.format("[NI] low hp: retreating at %.0f%% health", percent), "warn")
 end
 
 local function autoDashStep()

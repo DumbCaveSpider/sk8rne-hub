@@ -132,6 +132,8 @@ local Settings = {
 	LowHpThreshold = 35,
 	Disable3D = false,
 	WeaponPick = "Fists",
+	EspLoot = false,
+	AutoFarmLoot = false,
 	IdleNoCast = false,
 	AutoRevivePlayers = false,
 	AutoPickup = false,
@@ -241,11 +243,11 @@ end
 local function espStep()
 	local myRoot = getRootPart()
 	local folder = noobsFolder()
-	if not myRoot or not folder then
+	if not myRoot then
 		return
 	end
 	local visible = {}
-	for _, model in ipairs(folder:GetChildren()) do
+	for _, model in ipairs(folder and folder:GetChildren() or {}) do
 		if model:IsA("Model") and model ~= LocalPlayer.Character then
 			local humanoid = model:FindFirstChildOfClass("Humanoid")
 			local part = espPart(model)
@@ -270,6 +272,25 @@ local function espStep()
 						entry.Gui.Adornee = part
 						entry.Label.Text = text
 					end
+				end
+			end
+		end
+	end
+	if Settings.EspLoot then
+		for _, child in ipairs(workspace:GetChildren()) do
+			if child.Name == "Loot" and child:IsA("BasePart") then
+				local distance = (child.Position - myRoot.Position).Magnitude
+				if distance <= Settings.EspDistance then
+					local text = string.format("LOOT\n%d studs", math.floor(distance))
+					local color = child:IsA("UnionOperation") and Color3.fromRGB(255, 220, 80)
+						or Color3.fromRGB(80, 255, 120)
+					visible[child] = true
+					local entry = espEntries[child]
+					if not entry then
+						entry = createEsp(child, child, color, text)
+					end
+					entry.Gui.Adornee = child
+					entry.Label.Text = text
 				end
 			end
 		end
@@ -369,6 +390,43 @@ local function autoRevivePlayerStep()
 		end
 	end
 	logOnce("revive_player_noprompt", "auto revive: no revive prompt on the downed teammate", "warn")
+end
+
+local function nearestLoot(maxDistance)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, child in ipairs(workspace:GetChildren()) do
+		if child.Name == "Loot" and child:IsA("BasePart") then
+			local distance = (child.Position - myRoot.Position).Magnitude
+			if distance <= maxDistance and distance < bestDistance then
+				best, bestDistance = child, distance
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local nextLootAt = 0
+local function autoFarmLootStep()
+	local now = os.clock()
+	if now < nextLootAt then
+		return
+	end
+	nextLootAt = now + 0.3
+	local humanoid = getHumanoid()
+	if not humanoid then
+		return
+	end
+	local loot = nearestLoot(90)
+	if not loot then
+		return
+	end
+	-- Loot is collected by touch, so walking onto it is enough.
+	humanoid:MoveTo(loot.Position)
+	logOnce("loot_ok", "auto farm: walking onto loot to collect it", "info")
 end
 
 ---------------------------------------------------------------------
@@ -1310,6 +1368,16 @@ Farm:AddToggle({
 
 Farm:AddSection("Pickup", "Lucide:hand")
 Farm:AddToggle({
+	Text = "Auto Farm Money",
+	Description = "Walks onto dropped loot (cash and medkits) to collect it",
+	Icon = "Lucide:coins",
+	Default = false,
+	Flag = "ni_farm_loot",
+	Callback = function(value)
+		Settings.AutoFarmLoot = value
+	end,
+})
+Farm:AddToggle({
 	Text = "Auto Pickup",
 	Description = "Grabs the nearest shown ProximityPrompt and throws it with M1",
 	Icon = "Lucide:hand",
@@ -1399,6 +1467,16 @@ Visuals:AddToggle({
 	Flag = "ni_esp_boss",
 	Callback = function(value)
 		Settings.EspBoss = value
+	end,
+})
+Visuals:AddToggle({
+	Text = "Loot ESP",
+	Description = "Highlights dropped cash and medkits",
+	Icon = "Lucide:coins",
+	Default = false,
+	Flag = "ni_esp_loot",
+	Callback = function(value)
+		Settings.EspLoot = value
 	end,
 })
 Visuals:AddSlider({
@@ -1509,6 +1587,9 @@ task.spawn(function()
 		if Settings.AutoPickup then
 			pcall(autoPickupStep)
 		end
+		if Settings.AutoFarmLoot then
+			pcall(autoFarmLootStep)
+		end
 		if Settings.AutoChase then
 			pcall(autoChaseStep)
 		end
@@ -1573,6 +1654,7 @@ ctx:OnCleanup(function()
 	Settings.AutoAbilityPick = false
 	Settings.AutoRevive, Settings.EspNoob, Settings.EspBoss = false, false, false
 	Settings.AutoRevivePlayers = false
+	Settings.EspLoot, Settings.AutoFarmLoot = false, false
 	for model, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

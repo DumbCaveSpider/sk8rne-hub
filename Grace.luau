@@ -30,6 +30,7 @@ local Settings = {
 	AutoStartRound = false,
 	StopWave = 0,
 	AutoParry = false,
+	CounterAttack = false,
 	BestModifier = false,
 	TriggerLevers = false,
 	LeverEsp = false,
@@ -48,37 +49,44 @@ end
 
 ctx:Log("[GRACE] module loaded", "info")
 
--- What each entity actually does, shown in the event panel.
-local EVENT_INFO = {
-	Covet = { Title = "COVET", Hint = "Chasing you — sprint to the saferoom", Color = Color3.fromRGB(255, 80, 80) },
-	aCovet = { Title = "COVET (bound)", Hint = "Chasing you — sprint to the saferoom", Color = Color3.fromRGB(255, 80, 80) },
-	Sundial = { Title = "SUNDIAL", Hint = "Parry the moment it looks at you", Color = Color3.fromRGB(255, 200, 80) },
-	SundialT = { Title = "SUNDIAL (bound)", Hint = "Parry the moment it looks at you", Color = Color3.fromRGB(255, 200, 80) },
-	Seesay = { Title = "SEESAY", Hint = "Look at it and parry", Color = Color3.fromRGB(150, 120, 255) },
-	Innego = { Title = "INNEGO", Hint = "Screen entity — keep moving", Color = Color3.fromRGB(120, 220, 255) },
-	InnegoT = { Title = "INNEGO (bound)", Hint = "Screen entity — keep moving", Color = Color3.fromRGB(120, 220, 255) },
-	StemUI = { Title = "STEM", Hint = "Screen entity — keep moving", Color = Color3.fromRGB(120, 255, 160) },
-	Doppel = { Title = "DOPPEL", Hint = "Fake player — don't trust it", Color = Color3.fromRGB(200, 200, 200) },
-	bDoppel = { Title = "DOPPEL", Hint = "Fake player — don't trust it", Color = Color3.fromRGB(200, 200, 200) },
-	PulseUI = { Title = "IRE", Hint = "Stay on the ground", Color = Color3.fromRGB(255, 120, 255) },
+-- Every entity we can recognise, plus how to counter it. Keyed by lowercase name.
+local ENTITY_INFO = {
+	covet = { Title = "COVET", Counter = "Parry when it reaches you", Color = Color3.fromRGB(255, 80, 80) },
+	acovet = { Title = "COVET (bound)", Counter = "Parry when it reaches you", Color = Color3.fromRGB(255, 80, 80) },
+	sundial = { Title = "SUNDIAL", Counter = "Look up and parry", Color = Color3.fromRGB(255, 200, 80) },
+	sundialt = { Title = "SUNDIAL (bound)", Counter = "Look up and parry", Color = Color3.fromRGB(255, 200, 80) },
+	seesay = { Title = "SEESAY", Counter = "Look at it and parry", Color = Color3.fromRGB(150, 120, 255) },
+	innego = { Title = "INNEGO", Counter = "Keep moving", Color = Color3.fromRGB(120, 220, 255) },
+	innegot = { Title = "INNEGO (bound)", Counter = "Keep moving", Color = Color3.fromRGB(120, 220, 255) },
+	stemui = { Title = "STEM", Counter = "Keep moving", Color = Color3.fromRGB(120, 255, 160) },
+	doppel = { Title = "DOPPEL", Counter = "Don't trust it", Color = Color3.fromRGB(200, 200, 200) },
+	bdoppel = { Title = "DOPPEL", Counter = "Don't trust it", Color = Color3.fromRGB(200, 200, 200) },
+	pulseui = { Title = "IRE", Counter = "Stay on the ground", Color = Color3.fromRGB(255, 120, 255) },
+	fool = { Title = "FOOL", Counter = "Parry it", Color = Color3.fromRGB(255, 160, 120) },
+	craven = { Title = "CRAVEN", Counter = "Parry it", Color = Color3.fromRGB(200, 120, 120) },
+	rue = { Title = "RUE", Counter = "Parry it", Color = Color3.fromRGB(180, 140, 255) },
+	drain = { Title = "DRAIN", Counter = "Parry it", Color = Color3.fromRGB(140, 200, 140) },
+	dozer = { Title = "DOZER", Counter = "Parry it", Color = Color3.fromRGB(160, 160, 220) },
+	litany = { Title = "LITANY", Counter = "Parry it", Color = Color3.fromRGB(220, 180, 120) },
+	carnation = { Title = "CARNATION", Counter = "Parry it", Color = Color3.fromRGB(255, 120, 160) },
+	goatman = { Title = "GOATMAN", Counter = "Parry it", Color = Color3.fromRGB(200, 200, 160) },
+	slugfish = { Title = "SLUGFISH", Counter = "Parry it", Color = Color3.fromRGB(120, 180, 160) },
+	kookoo = { Title = "KOOKOO", Counter = "Parry it", Color = Color3.fromRGB(255, 200, 120) },
+	joey = { Title = "JOEY", Counter = "Parry it", Color = Color3.fromRGB(240, 200, 140) },
+	elkman = { Title = "ELKMAN", Counter = "Parry it", Color = Color3.fromRGB(180, 160, 140) },
+	sorrow = { Title = "SORROW", Counter = "Parry it", Color = Color3.fromRGB(140, 140, 200) },
+	woed = { Title = "WOED", Counter = "Parry it", Color = Color3.fromRGB(160, 120, 200) },
+	zomber = { Title = "ZOMBER", Counter = "Parry it", Color = Color3.fromRGB(140, 180, 120) },
+	mime = { Title = "MIME", Counter = "Parry it", Color = Color3.fromRGB(200, 200, 200) },
+	snap = { Title = "SNAP", Counter = "Parry it", Color = Color3.fromRGB(220, 220, 160) },
+	duk = { Title = "DUK", Counter = "Parry it", Color = Color3.fromRGB(160, 160, 160) },
+	tragedy = { Title = "TRAGEDY", Counter = "Parry it", Color = Color3.fromRGB(180, 100, 100) },
+	eyes = { Title = "EYES", Counter = "Parry it", Color = Color3.fromRGB(255, 140, 140) },
 }
 
-local WORLD_EVENTS = {
-	Covet = true,
-	aCovet = true,
-	Sundial = true,
-	SundialT = true,
-	Seesay = true,
-}
-
-local GUI_EVENTS = {
-	Innego = true,
-	InnegoT = true,
-	StemUI = true,
-	Doppel = true,
-	bDoppel = true,
-	PulseUI = true,
-}
+local function entityInfo(name)
+	return ENTITY_INFO[name] or ENTITY_INFO[string.lower(name)]
+end
 
 ---------------------------------------------------------------------
 -- Overlay
@@ -95,7 +103,7 @@ local espEntries = {}
 local function createEsp(model, part, info)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Sk8rneEsp"
-	gui.Size = UDim2.fromOffset(180, 42)
+	gui.Size = UDim2.fromOffset(200, 58)
 	gui.StudsOffset = Vector3.new(0, 4, 0)
 	gui.AlwaysOnTop = true
 	gui.Adornee = part
@@ -169,7 +177,7 @@ local function espStep()
 	local visible = {}
 	if myRoot then
 		for _, model in ipairs(workspace:GetChildren()) do
-			local info = WORLD_EVENTS[model.Name] and EVENT_INFO[model.Name]
+			local info = entityInfo(model.Name)
 			if info then
 				local part = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
 				if part then
@@ -181,7 +189,7 @@ local function espStep()
 							entry = createEsp(model, part, info)
 						end
 						entry.Gui.Adornee = part
-						entry.Label.Text = string.format("%s\n%d studs", info.Title, math.floor(distance))
+						entry.Label.Text = string.format("%s\n%d studs\n%s", info.Title, math.floor(distance), info.Counter)
 					end
 				end
 			end
@@ -367,7 +375,7 @@ eventTitle.Font = Enum.Font.GothamBold
 eventTitle.TextSize = 15
 eventTitle.TextXAlignment = Enum.TextXAlignment.Left
 eventTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-eventTitle.Text = "ACTIVE EVENTS"
+eventTitle.Text = "ACTIVE ENTITIES"
 eventTitle.Parent = eventFrame
 
 local eventBody = Instance.new("TextLabel")
@@ -384,19 +392,18 @@ eventBody.TextColor3 = Color3.fromRGB(200, 200, 210)
 eventBody.Text = ""
 eventBody.Parent = eventFrame
 
-local function activeEvents()
+local function activeEntities()
 	local active = {}
-	for name in pairs(WORLD_EVENTS) do
-		local instance = workspace:FindFirstChild(name)
-		if instance and instance:IsA("Model") then
-			table.insert(active, name)
+	for _, model in ipairs(workspace:GetChildren()) do
+		if model:IsA("Model") and entityInfo(model.Name) then
+			table.insert(active, model.Name)
 		end
 	end
 	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
 	if playerGui then
-		for name in pairs(GUI_EVENTS) do
-			if playerGui:FindFirstChild(name) then
-				table.insert(active, name)
+		for _, child in ipairs(playerGui:GetChildren()) do
+			if entityInfo(child.Name) then
+				table.insert(active, child.Name)
 			end
 		end
 	end
@@ -450,12 +457,14 @@ local function eventStep()
 	for _, name in ipairs(activeModifiers()) do
 		table.insert(lines, "• " .. modifierLine(name))
 	end
-	for _, name in ipairs(activeEvents()) do
-		local info = EVENT_INFO[name]
-		table.insert(lines, "• " .. (info and (info.Title .. " — " .. info.Hint) or name))
+	for _, name in ipairs(activeEntities()) do
+		local info = entityInfo(name)
+		if info then
+			table.insert(lines, "• " .. info.Title .. " — " .. info.Counter)
+		end
 	end
 	if #lines == 0 then
-		lines = { "No active modifiers or events" }
+		lines = { "No active modifiers or entities" }
 	end
 	eventFrame.Visible = true
 	eventBody.Text = table.concat(lines, "\n")
@@ -463,7 +472,7 @@ local function eventStep()
 	local key = table.concat(lines, "\n")
 	if key ~= lastEventKey then
 		lastEventKey = key
-		ctx:Log("[GRACE] events: " .. #lines .. " active", "info")
+		ctx:Log("[GRACE] entities: " .. #lines .. " active", "info")
 	end
 end
 
@@ -667,6 +676,64 @@ local function autoParry()
 	end
 end
 
+local function nearestEntityPart()
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, model in ipairs(workspace:GetChildren()) do
+		if model:IsA("Model") and entityInfo(model.Name) then
+			local part = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+			if part then
+				local distance = (part.Position - myRoot.Position).Magnitude
+				if distance < bestDistance then
+					best, bestDistance = part, distance
+				end
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local nextCounterAt = 0
+
+local function counterAttack()
+	local target, distance = nearestEntityPart()
+	if not target then
+		logOnce("counter_none", "counter attack: no entity in the workspace", "warn")
+		return
+	end
+	local now = os.clock()
+	if now < nextCounterAt then
+		return
+	end
+	nextCounterAt = now + 0.15
+	leftClick()
+	if ClientShared and ClientShared.CrouchParryAttempt then
+		local signal = ClientShared.CrouchParryAttempt
+		if type(signal.Fire) == "function" then
+			pcall(signal.Fire, signal)
+		end
+	end
+	if not ClientParryAttempt then
+		ClientParryAttempt = ReplicatedStorage:FindFirstChild("ClientParryAttempt")
+	end
+	if ClientParryAttempt then
+		local camera = workspace.CurrentCamera
+		local myRoot = getRootPart()
+		local origin = (camera and camera.CFrame.Position) or (myRoot and myRoot.Position)
+		if origin then
+			local attachment = ensureParryAttachment()
+			attachment.CFrame = CFrame.lookAt(origin, target.Position)
+			pcall(function()
+				ClientParryAttempt:Fire(attachment, tostring(math.random(1, 1000000)))
+			end)
+		end
+	end
+	logOnce("counter_ok", string.format("counter attack: parrying the nearest entity (%d studs)", math.floor(distance)), "info")
+end
+
 -- Saferoom modifier vote: each option is a modifier whose Reward attribute is its XP multiplier.
 -- The vote UI shows four of them and votes via Modifiers.VoteFor, so we pick the highest Reward.
 task.spawn(function()
@@ -825,8 +892,8 @@ Player:AddSlider({
 
 Visuals:AddSection("ESP", "Lucide:eye")
 Visuals:AddToggle({
-	Text = "Entity ESP",
-	Description = "Highlights and labels GRACE entities through walls",
+	Text = "All Entities ESP",
+	Description = "Highlights every entity with its name, distance and counter hint",
 	Icon = "Lucide:skull",
 	Default = false,
 	Flag = "gr_entity_esp",
@@ -936,6 +1003,18 @@ Player:AddToggle({
 		Settings.AutoParry = value
 		nextParryAt = 0
 		ctx:Log("[GRACE] auto parry " .. (value and "enabled" or "disabled"), "info")
+	end,
+})
+Player:AddToggle({
+	Text = "Counter Attack",
+	Description = "Aims at and parries the nearest entity automatically",
+	Icon = "Lucide:swords",
+	Default = false,
+	Flag = "gr_counter_attack",
+	Callback = function(value)
+		Settings.CounterAttack = value
+		nextCounterAt = 0
+		ctx:Log("[GRACE] counter attack " .. (value and "enabled" or "disabled"), "info")
 	end,
 })
 
@@ -1056,6 +1135,18 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.CounterAttack then
+			local ok, err = pcall(counterAttack)
+			if not ok then
+				logOnce("counter_loop_error", "counter attack error: " .. tostring(err), "warn")
+			end
+		end
+		task.wait(0.05)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid then
@@ -1078,6 +1169,7 @@ ctx:OnCleanup(function()
 	Settings.EntityEsp, Settings.DoorWaypoint, Settings.EventNotifier = false, false, false
 	Settings.NoParryCooldown, Settings.AutoStartRound = false, false
 	Settings.AutoParry = false
+	Settings.CounterAttack = false
 	Settings.BestModifier = false
 	Settings.TriggerLevers, Settings.LeverEsp = false, false
 	if parryAttachment then

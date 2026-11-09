@@ -82,12 +82,76 @@ end
 local DUMP_IDLE_TEXT = "Dump Everything"
 local MAX_FAILURE_LOGS = 20
 
+-- A crash inside the executor's decompiler closes the game before anything can be logged. So the
+-- dump writes what it is about to do to a progress file first. If that file is still there on the
+-- next run, the step it names crashed, and that script goes on a skip list kept in the dump folder.
+local PROGRESS_FILE = "_dump_progress.txt"
+local CRASH_LIST_FILE = "_dump_skipped.txt"
+
+local function readLines(path)
+	local lines = {}
+	if isfile and readfile and isfile(path) then
+		for line in readfile(path):gmatch("[^\n]+") do
+			table.insert(lines, line)
+		end
+	end
+	return lines
+end
+
+local function setProgress(root, text)
+	writefile(root .. "/" .. PROGRESS_FILE, text)
+end
+
+local function clearProgress(root)
+	local path = root .. "/" .. PROGRESS_FILE
+	if delfile and isfile and isfile(path) then
+		delfile(path)
+	else
+		writefile(path, "")
+	end
+end
+
+-- Returns the set of scripts to skip, adding the one the last run crashed on.
+local function loadCrashList(session, root)
+	local skipped = {}
+	for _, name in ipairs(readLines(root .. "/" .. CRASH_LIST_FILE)) do
+		skipped[name] = true
+	end
+
+	local progress = readLines(root .. "/" .. PROGRESS_FILE)[1]
+	if progress then
+		local crashedScript = progress:match("^decompiling (.+)$")
+		if crashedScript and not skipped[crashedScript] then
+			skipped[crashedScript] = true
+			local names = {}
+			for name in pairs(skipped) do
+				table.insert(names, name)
+			end
+			table.sort(names)
+			writefile(root .. "/" .. CRASH_LIST_FILE, table.concat(names, "\n"))
+			session.Log("The last dump crashed while decompiling " .. crashedScript .. ". It will be skipped.", "warn")
+		elseif not crashedScript then
+			session.Log("The last dump crashed during: " .. progress, "warn")
+		end
+	end
+
+	local count = 0
+	for _ in pairs(skipped) do
+		count += 1
+	end
+	if count > 0 then
+		session.Log(string.format("Skipping %d script(s) listed in %s", count, CRASH_LIST_FILE), "warn")
+	end
+	return skipped
+end
+
 -- Each source is { Instance, Folder }: an instance to dump, saved under that path inside root.
 -- Returns how many scripts were saved and how many were found.
-local function dumpScripts(session, statusLine, root, sources, step)
+local function dumpScripts(session, statusLine, root, sources, step, skipped)
 	local folders, scripts = { root }, {}
 	for _, source in ipairs(sources) do
 		statusLine:Set("Scanning " .. source.Folder)
+		setProgress(root, "scanning " .. source.Folder)
 		local path = root
 		for segment in source.Folder:gmatch("[^/]+") do
 			path = path .. "/" .. segment
@@ -109,7 +173,16 @@ local function dumpScripts(session, statusLine, root, sources, step)
 
 	local failed = 0
 	for index, entry in ipairs(scripts) do
-		local ok, source = pcall(decompile, entry.Instance)
+		local fullName = entry.Instance:GetFullName()
+		local ok, source
+		if skipped[fullName] then
+			ok, source = false, "skipped because it crashed an earlier dump"
+		else
+			-- One decompile per frame: a single large script can use a whole frame by itself.
+			session.task.wait()
+			setProgress(root, "decompiling " .. fullName)
+			ok, source = pcall(decompile, entry.Instance)
+		end
 		if ok and type(source) == "string" then
 			writefile(entry.Path, source)
 		else
@@ -269,6 +342,7 @@ local function dumpInstanceTrees(session, statusLine, root, step)
 	local total = 0
 	for _, tree in ipairs(trees) do
 		statusLine:Set("Listing " .. tree.Name)
+		setProgress(root, "listing the " .. tree.Name .. " tree")
 		local count, truncated = writeInstanceTree(tree.Instance, folder .. "/" .. tree.Name .. ".txt", tree.Skip, step)
 		total += count
 		session.Log(
@@ -287,6 +361,8 @@ local function dumpEverything(session, statusLine)
 		makefolder(root)
 	end
 
+	local skipped = loadCrashList(session, root)
+
 	local saved, found = 0, 0
 	if decompile then
 		local StarterPlayer = game:GetService("StarterPlayer")
@@ -298,13 +374,14 @@ local function dumpEverything(session, statusLine)
 			end
 		end
 		table.insert(sources, { Instance = game:GetService("ReplicatedStorage"), Folder = "ReplicatedStorage" })
-		saved, found = dumpScripts(session, statusLine, root, sources, step)
+		saved, found = dumpScripts(session, statusLine, root, sources, step, skipped)
 		session.Log(string.format("Scripts: saved %d of %d", saved, found), saved < found and "warn" or "info")
 	else
 		session.Log("Your executor can't decompile, so scripts were skipped", "warn")
 	end
 
 	local treeLines = dumpInstanceTrees(session, statusLine, root, step)
+	clearProgress(root)
 
 	local summary = string.format("Saved %d of %d scripts and %d tree lines to workspace/%s", saved, found, treeLines, root)
 	session.Log(summary)

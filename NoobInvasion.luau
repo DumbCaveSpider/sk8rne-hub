@@ -122,7 +122,6 @@ local Settings = {
 	JumpPower = 100,
 	InfiniteJump = false,
 	AutoSprint = false,
-	Godmode = false,
 	AutoAttack = false,
 	AutoKillAll = false,
 	KillRange = 60,
@@ -133,6 +132,7 @@ local Settings = {
 	Disable3D = false,
 	WeaponPick = "Fists",
 	IdleNoCast = false,
+	AutoRevivePlayers = false,
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
@@ -301,20 +301,73 @@ local function applyJump()
 	end
 end
 
-local function applyGodmode()
-	local humanoid = getHumanoid()
-	if humanoid and humanoid.Health > 0 then
-		if humanoid.Health < humanoid.MaxHealth then
-			pcall(function()
-				humanoid.Health = humanoid.MaxHealth
-			end)
+local nextPlayerReviveAt = 0
+
+local function findDownedTeammate()
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local character = player.Character
+			if character:GetAttribute("Downed") == true then
+				local root = character:FindFirstChild("HumanoidRootPart")
+				if root then
+					local distance = (root.Position - myRoot.Position).Magnitude
+					if distance < bestDistance then
+						best, bestDistance = character, distance
+					end
+				end
+			end
 		end
 	end
-	pcall(function()
-		LocalPlayer:SetAttribute("Shield", 9999)
-		LocalPlayer:SetAttribute("ShieldMax", 9999)
-	end)
-	logOnce("godmode_ok", "godmode: keeping health and shield topped", "info")
+	return best, bestDistance
+end
+
+local function autoRevivePlayerStep()
+	if not Settings.AutoRevivePlayers then
+		return
+	end
+	local now = os.clock()
+	if now < nextPlayerReviveAt then
+		return
+	end
+	nextPlayerReviveAt = now + 0.5
+	local humanoid = getHumanoid()
+	local myRoot = getRootPart()
+	if not humanoid or not myRoot then
+		return
+	end
+	-- Only rescue teammates when no noob is close enough to punish it.
+	local noob, noobDistance = nearestNoob()
+	if noob and noobDistance and noobDistance < 40 then
+		return
+	end
+	local teammate, distance = findDownedTeammate()
+	if not teammate then
+		return
+	end
+	local root = teammate:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	if distance > 6 then
+		humanoid:MoveTo(root.Position)
+		logOnce("revive_player_ok", "auto revive: walking to a downed teammate", "info")
+		return
+	end
+	for _, descendant in ipairs(teammate:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") and descendant.Enabled then
+			pcall(function()
+				fireproximityprompt(descendant)
+			end)
+			ctx:Log("[NI] auto revive: reviving " .. teammate.Name, "info")
+			return
+		end
+	end
+	logOnce("revive_player_noprompt", "auto revive: no revive prompt on the downed teammate", "warn")
 end
 
 ---------------------------------------------------------------------
@@ -1080,17 +1133,6 @@ Player:AddButton({
 	end,
 })
 
-Player:AddToggle({
-	Text = "Godmode",
-	Description = "Keeps health and shield topped up",
-	Icon = "Lucide:shield",
-	Default = false,
-	Flag = "ni_godmode",
-	Callback = function(value)
-		Settings.Godmode = value
-	end,
-})
-
 Combat:AddToggle({
 	Text = "Hit Any Direction",
 	Description = "Snaps to face the nearest noob before every attack",
@@ -1263,6 +1305,16 @@ Farm:AddToggle({
 		Settings.AutoRevive = value
 	end,
 })
+Farm:AddToggle({
+	Text = "Auto Revive Players",
+	Description = "Walks to downed teammates and revives them when no noobs are near",
+	Icon = "Lucide:hand-heart",
+	Default = false,
+	Flag = "ni_revive_players",
+	Callback = function(value)
+		Settings.AutoRevivePlayers = value
+	end,
+})
 
 Visuals:AddSection("ESP", "Lucide:eye")
 Visuals:AddToggle({
@@ -1349,9 +1401,6 @@ task.spawn(function()
 		if Settings.JumpOn then
 			pcall(applyJump)
 		end
-		if Settings.Godmode then
-			pcall(applyGodmode)
-		end
 		task.wait(0.25)
 	end
 end)
@@ -1403,6 +1452,9 @@ task.spawn(function()
 		if Settings.AutoRevive then
 			pcall(autoReviveStep)
 		end
+		if Settings.AutoRevivePlayers then
+			pcall(autoRevivePlayerStep)
+		end
 		task.wait(0.1)
 	end
 end)
@@ -1426,7 +1478,7 @@ end)
 
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
-	Settings.InfiniteJump, Settings.Godmode = false, false
+	Settings.InfiniteJump = false
 	setSprint(false)
 	Settings.AutoAttack, Settings.AutoAbility = false, false
 	Settings.DebugLogs = false
@@ -1444,6 +1496,7 @@ ctx:OnCleanup(function()
 	Settings.IdleNoCast = false
 	Settings.AutoAbilityPick = false
 	Settings.AutoRevive, Settings.EspNoob, Settings.EspBoss = false, false, false
+	Settings.AutoRevivePlayers = false
 	for model, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

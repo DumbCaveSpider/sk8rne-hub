@@ -491,17 +491,30 @@ end
 
 -- Parry is bound to the "useitem" key (left click by default), so drive it with real clicks.
 local function leftClick()
+	if type(mouse1press) == "function" and type(mouse1release) == "function" then
+		local ok = pcall(function()
+			mouse1press()
+			mouse1release()
+		end)
+		if ok then
+			return true
+		end
+	end
 	if type(mouse1click) == "function" then
 		local ok = pcall(mouse1click)
 		if ok then
 			return true
 		end
 	end
+	-- gameProcessedEvent must be false: passing 0 (truthy) makes the game's InputBegan
+	-- handler treat the click as already handled and skip the parry.
+	local userInputService = game:GetService("UserInputService")
 	local virtualInput = game:GetService("VirtualInputManager")
 	if virtualInput then
+		local location = userInputService:GetMouseLocation()
 		local ok = pcall(function()
-			virtualInput:SendMouseButtonEvent(0, 0, 0, true, 0)
-			virtualInput:SendMouseButtonEvent(0, 0, 0, false, 0)
+			virtualInput:SendMouseButtonEvent(location.X, location.Y, 0, true, false)
+			virtualInput:SendMouseButtonEvent(location.X, location.Y, 0, false, false)
 		end)
 		if ok then
 			return true

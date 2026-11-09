@@ -353,6 +353,20 @@ local function dumpInstanceTrees(session, statusLine, root, step)
 	return total
 end
 
+-- The script containers both dumps read from.
+local function scriptSources()
+	local StarterPlayer = game:GetService("StarterPlayer")
+	local sources = {}
+	for _, name in ipairs({ "StarterCharacterScripts", "StarterPlayerScripts" }) do
+		local container = StarterPlayer:WaitForChild(name, 5)
+		if container then
+			table.insert(sources, { Instance = container, Folder = "StarterPlayer/" .. name })
+		end
+	end
+	table.insert(sources, { Instance = game:GetService("ReplicatedStorage"), Folder = "ReplicatedStorage" })
+	return sources
+end
+
 -- StarterPlayer and ReplicatedStorage scripts, then the instance trees, all in one dump folder.
 local function dumpEverything(session, statusLine)
 	local step = newFrameBudget(session)
@@ -365,16 +379,7 @@ local function dumpEverything(session, statusLine)
 
 	local saved, found = 0, 0
 	if decompile then
-		local StarterPlayer = game:GetService("StarterPlayer")
-		local sources = {}
-		for _, name in ipairs({ "StarterCharacterScripts", "StarterPlayerScripts" }) do
-			local container = StarterPlayer:WaitForChild(name, 5)
-			if container then
-				table.insert(sources, { Instance = container, Folder = "StarterPlayer/" .. name })
-			end
-		end
-		table.insert(sources, { Instance = game:GetService("ReplicatedStorage"), Folder = "ReplicatedStorage" })
-		saved, found = dumpScripts(session, statusLine, root, sources, step, skipped)
+		saved, found = dumpScripts(session, statusLine, root, scriptSources(), step, skipped)
 		session.Log(string.format("Scripts: saved %d of %d", saved, found), saved < found and "warn" or "info")
 	else
 		session.Log("Your executor can't decompile, so scripts were skipped", "warn")
@@ -385,6 +390,29 @@ local function dumpEverything(session, statusLine)
 
 	local summary = string.format("Saved %d of %d scripts and %d tree lines to workspace/%s", saved, found, treeLines, root)
 	session.Log(summary)
+	session.Notify(summary, saved < found and "warning" or "success", 8)
+end
+
+-- Only the StarterPlayer and ReplicatedStorage scripts, without the instance trees.
+local function dumpScriptsOnly(session, statusLine)
+	local step = newFrameBudget(session)
+	local root = getDumpFolderName(session)
+	if not isfolder(root) then
+		makefolder(root)
+	end
+
+	local skipped = loadCrashList(session, root)
+
+	if not decompile then
+		session.Log("Your executor can't decompile, so scripts were skipped", "warn")
+		return
+	end
+
+	local saved, found = dumpScripts(session, statusLine, root, scriptSources(), step, skipped)
+	clearProgress(root)
+
+	local summary = string.format("Saved %d of %d scripts to workspace/%s", saved, found, root)
+	session.Log(summary, saved < found and "warn" or "info")
 	session.Notify(summary, saved < found and "warning" or "success", 8)
 end
 
@@ -458,6 +486,17 @@ local function buildDebugConsole(session)
 		Callback = function()
 			startDumpTask(function()
 				dumpEverything(session, dumpStatus)
+			end)
+		end,
+	})
+
+	Console:AddButton({
+		Text = "Dump Scripts Only",
+		Description = "Saves only the StarterPlayer and ReplicatedStorage scripts to workspace/" .. dumpFolder,
+		Icon = "Lucide:code",
+		Callback = function()
+			startDumpTask(function()
+				dumpScriptsOnly(session, dumpStatus)
 			end)
 		end,
 	})

@@ -469,31 +469,37 @@ nearestNoob = function()
 	return nearest, nearestDist
 end
 
+local faceConnection = nil
+
+local function smoothFace()
+	if faceConnection then
+		return
+	end
+	faceConnection = game:GetService("RunService").Heartbeat:Connect(function()
+		if not Settings.HitAnyDirection or not ctx:Alive() then
+			faceConnection:Disconnect()
+			faceConnection = nil
+			return
+		end
+		local myRoot = getRootPart()
+		local noob = nearestNoob()
+		if not myRoot or not noob then
+			return
+		end
+		local current = myRoot.CFrame
+		local target = Vector3.new(noob.Position.X, current.Position.Y, noob.Position.Z)
+		if (target - current.Position).Magnitude < 0.1 then
+			return
+		end
+		local goal = CFrame.lookAt(current.Position, target)
+		-- Ease toward the target every frame instead of snapping the CFrame, so the
+		-- character turns smoothly no matter how often the attack fires.
+		myRoot.CFrame = current:Lerp(goal, 0.2)
+	end)
+end
+
 faceNearestNoob = function()
-	local myRoot = getRootPart()
-	if not myRoot then
-		return false
-	end
-	local noob = nearestNoob()
-	if not noob then
-		return false
-	end
-	local target = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
-	local direction = target - myRoot.Position
-	if direction.Magnitude < 0.1 then
-		return false
-	end
-	local look = myRoot.CFrame.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	if flatLook.Magnitude < 0.01 then
-		flatLook = Vector3.new(0, 0, -1)
-	end
-	-- Snapping the CFrame on every attack makes the character look jittery,
-	-- so only correct a real misalignment (more than ~10 degrees).
-	if flatLook.Unit:Dot(direction.Unit) > 0.985 then
-		return false
-	end
-	myRoot.CFrame = CFrame.lookAt(myRoot.Position, target)
+	smoothFace()
 	return true
 end
 
@@ -1479,6 +1485,10 @@ end)
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.InfiniteJump = false
+	if faceConnection then
+		faceConnection:Disconnect()
+		faceConnection = nil
+	end
 	setSprint(false)
 	Settings.AutoAttack, Settings.AutoAbility = false, false
 	Settings.DebugLogs = false

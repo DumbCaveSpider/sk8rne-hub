@@ -31,6 +31,41 @@ end
 
 ctx:Log("[NI] module loaded", "info")
 
+-- Drive the game's own binds instead of guessing remote arguments.
+local function pressKey(keyCode)
+	local ok = pcall(function()
+		keypress(keyCode)
+	end)
+	if ok then
+		task.wait(0.05)
+		pcall(function()
+			keyrelease(keyCode)
+		end)
+		return true
+	end
+	return pcall(function()
+		local virtualInput = game:GetService("VirtualInputManager")
+		virtualInput:SendKeyEvent(true, keyCode, false, game)
+		task.wait(0.05)
+		virtualInput:SendKeyEvent(false, keyCode, false, game)
+	end)
+end
+
+local function clickMouse()
+	local ok = pcall(function()
+		mouse1click()
+	end)
+	if ok then
+		return true
+	end
+	return pcall(function()
+		local virtualInput = game:GetService("VirtualInputManager")
+		virtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+		task.wait(0.05)
+		virtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+	end)
+end
+
 local Settings = {
 	SpeedOn = false,
 	Speed = 30,
@@ -260,10 +295,9 @@ local function autoAttackStep()
 	if Settings.HitAnyDirection then
 		faceNearestNoob()
 	end
-	local chain = attackChain()
-	attackIndex = attackIndex % #chain + 1
-	fireRemote("Attack", chain[attackIndex])
-	logOnce("attack_ok", "auto attack: cycling the equipped weapon's chain", "info")
+	-- M1 is the game's punch bind; it picks the right chain for the equipped weapon.
+	clickMouse()
+	logOnce("attack_ok", "auto attack: clicking the punch button", "info")
 end
 
 local function aliveNoobsInRange(range)
@@ -421,25 +455,6 @@ local function autoChaseStep()
 	logOnce("chase_ok", "auto chase: steering toward the nearest noob", "info")
 end
 
-local function pressKey(keyCode)
-	local ok = pcall(function()
-		keypress(keyCode)
-	end)
-	if ok then
-		task.wait(0.05)
-		pcall(function()
-			keyrelease(keyCode)
-		end)
-		return true
-	end
-	return pcall(function()
-		local virtualInput = game:GetService("VirtualInputManager")
-		virtualInput:SendKeyEvent(true, keyCode, false, game)
-		task.wait(0.05)
-		virtualInput:SendKeyEvent(false, keyCode, false, game)
-	end)
-end
-
 local function autoDashStep()
 	local now = os.clock()
 	if now < nextDashAt then
@@ -507,8 +522,9 @@ local function autoSuperStep()
 		return
 	end
 	nextSuperAt = now + 4
-	fireRemote("Attack", superAttack())
-	logOnce("super_ok", "auto super: firing the super attack", "info")
+	-- F is the game's Super bind.
+	pressKey(Enum.KeyCode.F)
+	logOnce("super_ok", "auto super: pressing F", "info")
 end
 
 -- Auto-pick ability offers only when the SERVER sends one (a string id, e.g. "Shadow").

@@ -359,8 +359,12 @@ faceNearestNoob = function()
 end
 
 local chaseSpeedApplied = false
+local lastChaseMoveAt = 0
+local lastChasePosition = nil
 
 local function clearChasePath()
+	lastChasePosition = nil
+	lastChaseMoveAt = 0
 	if chaseSpeedApplied then
 		chaseSpeedApplied = false
 		local humanoid = getHumanoid()
@@ -400,8 +404,15 @@ local function autoChaseStep()
 		humanoid.WalkSpeed = desiredSpeed
 		chaseSpeedApplied = true
 	end
-	if direction.Magnitude > 0.5 then
-		humanoid:Move(direction.Unit * approach)
+	-- MoveTo is what the game's input controller respects; Humanoid:Move is reset to zero
+	-- every frame when no keys are held. Throttle + predict so it tracks a moving noob
+	-- without restarting the walk every tick.
+	local predicted = flat + (noob.AssemblyLinearVelocity or Vector3.zero) * 0.2
+	local movedFar = lastChasePosition == nil or (predicted - lastChasePosition).Magnitude > 4
+	if now - lastChaseMoveAt >= 0.25 or movedFar then
+		lastChaseMoveAt = now
+		lastChasePosition = predicted
+		humanoid:MoveTo(predicted)
 	end
 	if noob.Position.Y > myRoot.Position.Y + 3 then
 		humanoid.Jump = true

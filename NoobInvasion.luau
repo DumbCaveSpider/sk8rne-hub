@@ -981,6 +981,43 @@ Player:AddSlider({
 		Settings.LowHpThreshold = value
 	end,
 })
+local waveWaypoint = nil
+
+Player:AddButton({
+	Text = "Set Wave Waypoint",
+	Description = "Stores your current position as the wave waypoint",
+	Icon = "Lucide:map-pin",
+	Callback = function()
+		local myRoot = getRootPart()
+		if myRoot then
+			waveWaypoint = myRoot.Position
+			ctx:Log("[NI] wave waypoint saved", "info")
+		end
+	end,
+})
+Player:AddButton({
+	Text = "Go To Wave Waypoint",
+	Description = "Walks to the saved waypoint once the wave is over",
+	Icon = "Lucide:navigation",
+	Callback = function()
+		if not waveWaypoint then
+			ctx:Log("[NI] no wave waypoint set - use Set Wave Waypoint first", "warn")
+			return
+		end
+		local myRoot = getRootPart()
+		local humanoid = getHumanoid()
+		if not myRoot or not humanoid then
+			return
+		end
+		if nearestNoob() then
+			ctx:Log("[NI] wave is still running, waypoint skipped", "warn")
+			return
+		end
+		humanoid:MoveTo(waveWaypoint)
+		ctx:Log("[NI] walking to the wave waypoint", "info")
+	end,
+})
+
 Player:AddToggle({
 	Text = "Godmode",
 	Description = "Keeps health and shield topped up",

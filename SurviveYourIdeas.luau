@@ -468,14 +468,16 @@ end
 local lastStaminaLog = 0
 local function unlimitedStaminaStep()
 	local now = os.clock()
-	local stamina = LocalPlayer:GetAttribute("Stamina")
-	local isNumber = typeof(stamina) == "number"
+	local sprintRemotes = ReplicatedStorage:FindFirstChild("SprintRemotes")
+	local setSprint = sprintRemotes and sprintRemotes:FindFirstChild("SetSprint")
+	local before = LocalPlayer:GetAttribute("Stamina")
 	pcall(function()
 		LocalPlayer:SetAttribute("Stamina", 100)
 		LocalPlayer:SetAttribute("StaminaDrainMultiplier", 0)
 	end)
-	local sprintRemotes = ReplicatedStorage:FindFirstChild("SprintRemotes")
-	local setSprint = sprintRemotes and sprintRemotes:FindFirstChild("SetSprint")
+	local after = LocalPlayer:GetAttribute("Stamina")
+	local character = getCharacter()
+	local sprinting = character and character:GetAttribute("Sprinting")
 	local fired = false
 	if setSprint and setSprint:IsA("RemoteEvent") then
 		pcall(function()
@@ -483,12 +485,15 @@ local function unlimitedStaminaStep()
 		end)
 		fired = true
 	end
-	if now - lastStaminaLog >= 2 then
+	if now - lastStaminaLog >= 1 then
 		lastStaminaLog = now
 		ctx:Log(
 			string.format(
-				"[SYI] stamina debug: attribute=%s sprintRemote=%s",
-				isNumber and tostring(math.floor(stamina)) or "nil",
+				"[SYI] stamina debug: before=%s after=%s sprinting=%s drainMul=%s fired=%s",
+				tostring(before),
+				tostring(after),
+				tostring(sprinting),
+				tostring(LocalPlayer:GetAttribute("StaminaDrainMultiplier")),
 				tostring(fired)
 			),
 			"info"

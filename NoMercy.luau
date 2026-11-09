@@ -4,6 +4,7 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -50,12 +51,14 @@ local Settings = {
 	AutoSpawnProtection = false,
 	AutoFreezeFrame = false,
 	AutoInflatable = false,
+	ThreatEsp = false,
+	DoubleJump = false,
 }
 
 -- The Ragdoll library is what the "Helping hand" passive uses to un-ragdoll.
 local Ragdoll = nil
 do
-	local libs = ReplicatedStorage:WaitForChild("Libs_NM", 10)
+	local libs = ReplicatedStorage:WaitForChild("Libs", 10)
 	local module = libs and libs:WaitForChild("Ragdoll", 10)
 	if module then
 		local ok, result = pcall(require, module)
@@ -63,6 +66,29 @@ do
 			Ragdoll = result
 		end
 	end
+end
+
+-- Threat catalogue: names come from ReplicatedStorage.ThreatInfo.
+local ThreatInfo = nil
+do
+	local module = ReplicatedStorage:WaitForChild("ThreatInfo", 10)
+	if module then
+		local ok, result = pcall(require, module)
+		if ok then
+			ThreatInfo = result
+		end
+	end
+end
+
+local THREAT_NAMES = {}
+if ThreatInfo and ThreatInfo.Images then
+	for name in pairs(ThreatInfo.Images) do
+		THREAT_NAMES[string.lower(name)] = name
+	end
+end
+
+local function threatName(model)
+	return THREAT_NAMES[string.lower(model.Name)]
 end
 
 ---------------------------------------------------------------------
@@ -228,6 +254,36 @@ local function espStep()
 				end
 			end
 		end
+		if Settings.ThreatEsp then
+			for _, model in ipairs(workspace:GetChildren()) do
+				if model:IsA("Model") then
+					local name = threatName(model)
+					if name then
+						local part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+						if part then
+							local distance = (part.Position - myRoot.Position).Magnitude
+							if distance <= Settings.EspDistance then
+								local description = ThreatInfo and ThreatInfo.Descriptions and ThreatInfo.Descriptions[name]
+								local text = string.format(
+									"THREAT: %s\n%d studs%s",
+									name,
+									math.floor(distance),
+									description and ("\n" .. description) or ""
+								)
+								local color = Color3.fromRGB(255, 140, 80)
+								visible[model] = true
+								local entry = espEntries[model]
+								if not entry then
+									entry = createEsp(model, part, color, text)
+								end
+								entry.Gui.Adornee = part
+								entry.Label.Text = text
+							end
+						end
+					end
+				end
+			end
+		end
 	end
 	for model, entry in pairs(espEntries) do
 		if not visible[model] then
@@ -237,6 +293,54 @@ local function espStep()
 		end
 	end
 end
+
+local doubleJumpAt = 0
+local function tryDoubleJump()
+	local humanoid = getHumanoid()
+	local character = getCharacter()
+	if not humanoid or not character then
+		return
+	end
+	if character:GetAttribute("IsRagdolled") then
+		return
+	end
+	local now = os.clock()
+	if now - doubleJumpAt < 0.2 then
+		return
+	end
+	if humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+		return
+	end
+	doubleJumpAt = now
+	local root = getRootPart()
+	if root then
+		root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+	end
+	humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	logOnce("doublejump_ok", "double jump: re-jumping mid-air", "info")
+end
+
+ctx:Connect(UserInputService.JumpRequest, function()
+	if Settings.DoubleJump then
+		tryDoubleJump()
+	end
+end)
+
+-- Threat feedback: the game announces HIT / DEATH for each threat.
+task.spawn(function()
+	local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+	local client = remotes and remotes:WaitForChild("Client", 10)
+	local gameRemotes = client and client:WaitForChild("Game", 10)
+	local threats = gameRemotes and gameRemotes:WaitForChild("Threats", 10)
+	local feedback = threats and threats:WaitForChild("ThreatFeedback", 10)
+	if not (feedback and feedback:IsA("RemoteEvent")) then
+		logOnce("threat_nofeedback", "threat feedback remote not found", "warn")
+		return
+	end
+	ctx:Connect(feedback.OnClientEvent, function(threat, eventName)
+		ctx:Log(string.format("[NOMERCY] threat %s: %s", tostring(threat), tostring(eventName)), "warn")
+	end)
+end)
 
 ---------------------------------------------------------------------
 -- Player helpers
@@ -400,6 +504,16 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
+	Text = "Double Jump",
+	Description = "Re-jump while airborne (like the Double Jump core upgrade)",
+	Icon = "Lucide:arrow-up-circle",
+	Default = false,
+	Flag = "nm_double_jump",
+	Callback = function(value)
+		Settings.DoubleJump = value
+	end,
+})
+Player:AddToggle({
 	Text = "Low Gravity",
 	Description = "Cuts gravity so you float further",
 	Icon = "Lucide:moon",
@@ -496,6 +610,16 @@ Visuals:AddToggle({
 		Settings.CannonEsp = value
 	end,
 })
+Visuals:AddToggle({
+	Text = "Threat ESP",
+	Description = "Highlights every threat with its name and counter hint",
+	Icon = "Lucide:skull",
+	Default = false,
+	Flag = "nm_threat_esp",
+	Callback = function(value)
+		Settings.ThreatEsp = value
+	end,
+})
 Visuals:AddSlider({
 	Text = "ESP Distance",
 	Description = "How far away ESP targets are drawn",
@@ -517,7 +641,7 @@ Visuals:AddSlider({
 
 task.spawn(function()
 	while ctx:Alive() do
-		if Settings.PlayerEsp or Settings.CannonEsp then
+		if Settings.PlayerEsp or Settings.CannonEsp or Settings.ThreatEsp then
 			pcall(espStep)
 		end
 		task.wait(0.2)
@@ -586,6 +710,7 @@ ctx:OnCleanup(function()
 	Settings.InfiniteJump, Settings.AntiRagdoll, Settings.Godmode = false, false, false
 	Settings.Hover, Settings.LowGravity = false, false
 	Settings.PlayerEsp, Settings.CannonEsp = false, false
+	Settings.ThreatEsp, Settings.DoubleJump = false, false
 	Settings.AutoParry, Settings.AutoSlide, Settings.AutoSmokeDash = false, false, false
 	Settings.AutoSpawnProtection, Settings.AutoFreezeFrame, Settings.AutoInflatable = false, false, false
 	workspace.Gravity = DEFAULT_GRAVITY

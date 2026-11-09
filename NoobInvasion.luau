@@ -388,23 +388,19 @@ local function autoChaseStep()
 		clearChasePath()
 		return
 	end
-	-- Cap the chase speed. A Speed Boost above ChaseSpeed makes the character overshoot
-	-- the noob and bounce back and forth, which is what reads as jitter.
-	if humanoid.WalkSpeed ~= Settings.ChaseSpeed then
-		humanoid.WalkSpeed = Settings.ChaseSpeed
-		chaseSpeedApplied = true
-	end
-	-- Continuous steering with braking: ease off as the target gets close so we settle
-	-- inside the stop distance instead of running past it.
+	-- Brake both the speed and the steering as the noob gets close. At full ChaseSpeed
+	-- the character covers several studs per tick and runs straight past a close target,
+	-- which is what makes the chase look like it is jittering.
 	local flat = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
 	local direction = flat - myRoot.Position
+	local approach = math.clamp((direction.Magnitude - Settings.ChaseStop) / 15, 0.15, 1)
+	local desiredSpeed = math.max(8, Settings.ChaseSpeed * approach)
+	if humanoid.WalkSpeed ~= desiredSpeed then
+		humanoid.WalkSpeed = desiredSpeed
+		chaseSpeedApplied = true
+	end
 	if direction.Magnitude > 0.5 then
-		local scale = math.clamp((direction.Magnitude - Settings.ChaseStop) / 10, 0, 1)
-		if scale > 0.05 then
-			humanoid:Move(direction.Unit * scale)
-		else
-			humanoid:Move(Vector3.zero)
-		end
+		humanoid:Move(direction.Unit * approach)
 	end
 	if noob.Position.Y > myRoot.Position.Y + 3 then
 		humanoid.Jump = true

@@ -38,6 +38,37 @@ local function requireCore(fileName)
 	return chunk()
 end
 
+-- Resolve the newest commit before downloading anything, then fetch every file from its
+-- immutable /<sha>/<file> URL. A CDN cannot serve a stale copy of a path that only exists
+-- for that one commit, so module pushes show up on the very next run.
+local function fetchCommit()
+	local endpoints = {
+		"https://api.github.com/repos/DumbCaveSpider/sk8rne-hub/commits?per_page=1",
+		"https://api.github.com/repos/DumbCaveSpider/sk8rne-hub/git/refs/heads/main",
+	}
+	for _, url in ipairs(endpoints) do
+		local ok, body = pcall(function()
+			return game:HttpGet(url)
+		end)
+		if ok and type(body) == "string" then
+			local sha = body:match('"sha"%s*:%s*"([0-9a-f]+)"')
+			if sha then
+				return sha
+			end
+		end
+	end
+	return nil
+end
+
+do
+	local commit = fetchCommit()
+	HUB.Commit = commit or "unknown"
+	HUB.Version = commit and string.sub(commit, 1, 7) or "unknown"
+	if commit then
+		HUB.RepoUrl = "https://raw.githubusercontent.com/DumbCaveSpider/sk8rne-hub/" .. commit
+	end
+end
+
 -- 1. Clear out the previous session first: toggles off, loops, connections, hooks, attributes, window.
 local runToken = {}
 genv.__Sk8rneHubRun = runToken
@@ -106,32 +137,6 @@ local Window = VindUI:CreateWindow({
 	DefaultTab = gameDef and GAME_TAB_NAME or "Hub Settings",
 	ToggleKeybind = false, -- Handled by the rebindable key in Hub Settings
 })
-
--- The About tab shows the exact build, so replace the version with the newest commit SHA.
-local function fetchCommit()
-	local endpoints = {
-		"https://api.github.com/repos/DumbCaveSpider/sk8rne-hub/commits?per_page=1",
-		"https://api.github.com/repos/DumbCaveSpider/sk8rne-hub/git/refs/heads/main",
-	}
-	for _, url in ipairs(endpoints) do
-		local ok, body = pcall(function()
-			return game:HttpGet(url)
-		end)
-		if ok and type(body) == "string" then
-			local sha = body:match('"sha"%s*:%s*"([0-9a-f]+)"')
-			if sha then
-				return sha
-			end
-		end
-	end
-	return nil
-end
-
-do
-	local commit = fetchCommit()
-	HUB.Commit = commit or "unknown"
-	HUB.Version = commit and string.sub(commit, 1, 7) or "unknown"
-end
 
 local session = Session.new(HUB, VindUI, Window, gameDef)
 genv.__Sk8rneHub = session

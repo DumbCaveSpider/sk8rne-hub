@@ -101,6 +101,44 @@ local function set3DRendering(renderingEnabled)
 	end)
 end
 
+-- The game runs its own movement module and overwrites Humanoid:MoveTo, so the chase
+-- has to drive the real WASD keys the game listens to.
+local moveKeys = { W = false, A = false, S = false, D = false }
+local moveKeyCodes = { W = Enum.KeyCode.W, A = Enum.KeyCode.A, S = Enum.KeyCode.S, D = Enum.KeyCode.D }
+
+local function setMoveKey(name, down)
+	if moveKeys[name] == down then
+		return
+	end
+	moveKeys[name] = down
+	local code = moveKeyCodes[name]
+	if down then
+		local ok = pcall(function()
+			keypress(code)
+		end)
+		if not ok then
+			pcall(function()
+				game:GetService("VirtualInputManager"):SendKeyEvent(true, code, false, game)
+			end)
+		end
+	else
+		local ok = pcall(function()
+			keyrelease(code)
+		end)
+		if not ok then
+			pcall(function()
+				game:GetService("VirtualInputManager"):SendKeyEvent(false, code, false, game)
+			end)
+		end
+	end
+end
+
+local function releaseMoveKeys()
+	for name in pairs(moveKeys) do
+		setMoveKey(name, false)
+	end
+end
+
 -- Close the game's choice frame; firing the remote alone leaves the UI on screen.
 local function closeChoiceFrame(frameName)
 	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -573,6 +611,7 @@ local chaseTargetPos = nil
 local lastRepathAt = 0
 
 local function clearChasePath()
+	releaseMoveKeys()
 	lastChasePosition = nil
 	lastChaseMoveAt = 0
 	lastStuckPos = nil
@@ -645,44 +684,23 @@ local function autoChaseStep()
 		humanoid.WalkSpeed = desiredSpeed
 		chaseSpeedApplied = true
 	end
-	-- Pathfind to the noob so walls and ledges are routed around instead of walked into.
-	-- Repath only when the target moves far enough or the path gets old, and re-issue
-	-- MoveTo only when the waypoint changes, which keeps the walk smooth.
-	local targetMoved = chaseTargetPos and (noob.Position - chaseTargetPos).Magnitude > 8
-	if not chasePath or targetMoved or now - lastRepathAt > 1 then
-		chaseTargetPos = noob.Position
-		lastRepathAt = now
-		if not buildChasePath(noob) then
-			chasePath = nil
-			-- Pathfinding unavailable here: fall back to a throttled direct walk. Re-issuing
-			-- MoveTo every tick is what stalls the character, so keep it to 0.25s / 4 studs.
-			if now - lastChaseMoveAt > 0.25 then
-				lastChaseMoveAt = now
-				humanoid:MoveTo(noob.Position)
-			end
-			logOnce("chase_nopath", "auto chase: pathfinding failed, walking directly", "warn")
-			return
-		end
-	end
-	local waypoints = chasePath and chasePath:GetWaypoints()
-	if not waypoints or chaseIndex > #waypoints then
-		humanoid:MoveTo(noob.Position)
-		return
-	end
-	local waypoint = waypoints[chaseIndex]
-	if waypoint.Action == Enum.PathWaypointAction.Jump then
-		humanoid.Jump = true
-	end
-	-- Re-issue MoveTo when the waypoint changes, and also every 0.5s in case the humanoid
-	-- stalled on the previous command (MoveTo stops itself if it cannot reach the goal).
-	if lastChasePosition ~= waypoint or now - lastChaseMoveAt > 0.5 then
-		lastChasePosition = waypoint
-		lastChaseMoveAt = now
-		humanoid:MoveTo(waypoint.Position)
-	end
-	if (myRoot.Position - waypoint.Position).Magnitude < 3 then
-		chaseIndex = chaseIndex + 1
-		lastChasePosition = nil
+	-- The game's movement module overrides Humanoid:MoveTo, so steer with the real WASD
+	-- keys it listens to, chosen from the camera-relative direction to the noob.
+	local camera = workspace.CurrentCamera
+	local toTarget = noob.Position - myRoot.Position
+	local flatDirection = Vector3.new(toTarget.X, 0, toTarget.Z)
+	if camera and flatDirection.Magnitude > 0.1 then
+		local directionUnit = flatDirection.Unit
+		local forward = camera.CFrame.LookVector
+		local right = camera.CFrame.RightVector
+		local forwardUnit = Vector3.new(forward.X, 0, forward.Z)
+		local rightUnit = Vector3.new(right.X, 0, right.Z)
+		local forwardAmount = forwardUnit.Magnitude > 0.01 and directionUnit:Dot(forwardUnit.Unit) or 0
+		local rightAmount = rightUnit.Magnitude > 0.01 and directionUnit:Dot(rightUnit.Unit) or 0
+		setMoveKey("W", forwardAmount > 0.25)
+		setMoveKey("S", forwardAmount < -0.25)
+		setMoveKey("D", rightAmount > 0.25)
+		setMoveKey("A", rightAmount < -0.25)
 	end
 	if noob.Position.Y > myRoot.Position.Y + 3 then
 		humanoid.Jump = true

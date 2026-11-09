@@ -80,16 +80,90 @@ do
 	end
 end
 
-local THREAT_NAMES = {}
+-- Every threat model the game can spawn, including the template/model names it clones.
+local THREAT_ALIASES = {}
+local function alias(key, display)
+	THREAT_ALIASES[key:gsub("[%s_%-%?']", ""):lower()] = display
+end
+alias("CASSIE", "CASSIE")
+alias("Cupid", "Cupid")
+alias("James the Reaper", "James the Reaper")
+alias("Reaper", "James the Reaper")
+alias("Wring", "Wring")
+alias("The Sacrifice", "The Sacrifice")
+alias("Sacrifice", "The Sacrifice")
+alias("Spinning Lasers", "Spinning Lasers")
+alias("SpinningLasers", "Spinning Lasers")
+alias("LasersParts", "Spinning Lasers")
+alias("Bounce Lasers", "Bounce Lasers")
+alias("Boxing Dummy", "Boxing Dummy")
+alias("OXI", "OXI")
+alias("Boom-ba", "Boom-ba")
+alias("Pumpkin patch", "Pumpkin patch")
+alias("Shadow", "Shadow")
+alias("Why's this Wheeler?", "Why's this Wheeler?")
+alias("Why This Guy", "Why's this Wheeler?")
+alias("Duck", "Duck")
+alias("DuckModel", "Duck")
+
 if ThreatInfo and ThreatInfo.Images then
 	for name in pairs(ThreatInfo.Images) do
-		THREAT_NAMES[string.lower(name)] = name
+		alias(name, name)
 	end
 end
 
-local function threatName(model)
-	return THREAT_NAMES[string.lower(model.Name)]
+local function normalizeName(name)
+	return name:gsub("[%s_%-%?']", ""):lower()
 end
+
+local function threatNameFromInstance(instance)
+	return THREAT_ALIASES[normalizeName(instance.Name)]
+end
+
+local threatModels = {}
+
+local function registerThreat(instance)
+	if not instance:IsA("Model") or threatModels[instance] then
+		return
+	end
+	local name = threatNameFromInstance(instance)
+	if not name then
+		return
+	end
+	threatModels[instance] = name
+	ctx:Log("[NOMERCY] threat spawned: " .. name, "warn")
+end
+
+task.spawn(function()
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		registerThreat(descendant)
+	end
+	ctx:Connect(workspace.DescendantAdded, registerThreat)
+	ctx:Connect(workspace.DescendantRemoving, function(instance)
+		threatModels[instance] = nil
+	end)
+end)
+
+-- Anti-ragdoll also blocks the client's RagdollPush request; threats use it to ragdoll you.
+task.spawn(function()
+	local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+	local client = remotes and remotes:WaitForChild("Client", 10)
+	local gameRemotes = client and client:WaitForChild("Game", 10)
+	local threats = gameRemotes and gameRemotes:WaitForChild("Threats", 10)
+	local ragdollPush = threats and threats:WaitForChild("RagdollPush", 10)
+	if not (ragdollPush and ragdollPush:IsA("RemoteEvent")) then
+		logOnce("ragdollpush_missing", "anti-ragdoll: RagdollPush remote not found", "warn")
+		return
+	end
+	ctx:HookMeta(ragdollPush, "__namecall", function(old, self, ...)
+		if self == ragdollPush and Settings.AntiRagdoll and getnamecallmethod() == "FireServer" then
+			logOnce("ragdollpush_blocked", "anti-ragdoll: blocked a RagdollPush request", "info")
+			return
+		end
+		return old(self, ...)
+	end)
+	logOnce("ragdollpush_hooked", "anti-ragdoll: RagdollPush is blocked while enabled", "info")
+end)
 
 ---------------------------------------------------------------------
 -- Skills
@@ -255,30 +329,27 @@ local function espStep()
 			end
 		end
 		if Settings.ThreatEsp then
-			for _, model in ipairs(workspace:GetChildren()) do
-				if model:IsA("Model") then
-					local name = threatName(model)
-					if name then
-						local part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
-						if part then
-							local distance = (part.Position - myRoot.Position).Magnitude
-							if distance <= Settings.EspDistance then
-								local description = ThreatInfo and ThreatInfo.Descriptions and ThreatInfo.Descriptions[name]
-								local text = string.format(
-									"THREAT: %s\n%d studs%s",
-									name,
-									math.floor(distance),
-									description and ("\n" .. description) or ""
-								)
-								local color = Color3.fromRGB(255, 140, 80)
-								visible[model] = true
-								local entry = espEntries[model]
-								if not entry then
-									entry = createEsp(model, part, color, text)
-								end
-								entry.Gui.Adornee = part
-								entry.Label.Text = text
+			for model, displayName in pairs(threatModels) do
+				if model.Parent then
+					local part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+					if part then
+						local distance = (part.Position - myRoot.Position).Magnitude
+						if distance <= Settings.EspDistance then
+							local description = ThreatInfo and ThreatInfo.Descriptions and ThreatInfo.Descriptions[displayName]
+							local text = string.format(
+								"THREAT: %s\n%d studs%s",
+								displayName,
+								math.floor(distance),
+								description and ("\n" .. description) or ""
+							)
+							local color = Color3.fromRGB(255, 140, 80)
+							visible[model] = true
+							local entry = espEntries[model]
+							if not entry then
+								entry = createEsp(model, part, color, text)
 							end
+							entry.Gui.Adornee = part
+							entry.Label.Text = text
 						end
 					end
 				end

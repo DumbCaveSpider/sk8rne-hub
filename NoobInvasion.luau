@@ -388,16 +388,23 @@ local function autoChaseStep()
 		clearChasePath()
 		return
 	end
-	if humanoid.WalkSpeed < Settings.ChaseSpeed then
+	-- Cap the chase speed. A Speed Boost above ChaseSpeed makes the character overshoot
+	-- the noob and bounce back and forth, which is what reads as jitter.
+	if humanoid.WalkSpeed ~= Settings.ChaseSpeed then
 		humanoid.WalkSpeed = Settings.ChaseSpeed
 		chaseSpeedApplied = true
 	end
-	-- Continuous steering: Humanoid:Move keeps one smooth walk toward a moving target.
-	-- Re-calling MoveTo every tick restarts the walk, which is what caused the stutter.
+	-- Continuous steering with braking: ease off as the target gets close so we settle
+	-- inside the stop distance instead of running past it.
 	local flat = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
 	local direction = flat - myRoot.Position
 	if direction.Magnitude > 0.5 then
-		humanoid:Move(direction.Unit)
+		local scale = math.clamp((direction.Magnitude - Settings.ChaseStop) / 10, 0, 1)
+		if scale > 0.05 then
+			humanoid:Move(direction.Unit * scale)
+		else
+			humanoid:Move(Vector3.zero)
+		end
 	end
 	if noob.Position.Y > myRoot.Position.Y + 3 then
 		humanoid.Jump = true

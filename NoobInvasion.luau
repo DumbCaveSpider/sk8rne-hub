@@ -376,7 +376,7 @@ local function autoChaseStep()
 	if now < nextChaseAt then
 		return
 	end
-	nextChaseAt = now + 0.1
+	nextChaseAt = now + 0.05
 	local humanoid = getHumanoid()
 	local myRoot = getRootPart()
 	if not humanoid or not myRoot then
@@ -388,13 +388,14 @@ local function autoChaseStep()
 		clearChasePath()
 		return
 	end
-	-- Brake both the speed and the steering as the noob gets close. At full ChaseSpeed
-	-- the character covers several studs per tick and runs straight past a close target,
-	-- which is what makes the chase look like it is jittering.
+	-- Brake both the speed and the steering as the noob gets close. A very high top speed
+	-- covers several studs per tick and runs straight past the target, so it is capped
+	-- here even if the slider is pushed higher.
 	local flat = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
 	local direction = flat - myRoot.Position
+	local topSpeed = math.min(Settings.ChaseSpeed, 40)
 	local approach = math.clamp((direction.Magnitude - Settings.ChaseStop) / 15, 0.15, 1)
-	local desiredSpeed = math.max(8, Settings.ChaseSpeed * approach)
+	local desiredSpeed = math.max(8, topSpeed * approach)
 	if humanoid.WalkSpeed ~= desiredSpeed then
 		humanoid.WalkSpeed = desiredSpeed
 		chaseSpeedApplied = true

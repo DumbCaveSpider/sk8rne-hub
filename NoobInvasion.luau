@@ -121,6 +121,7 @@ local Settings = {
 	AutoKillAll = false,
 	KillRange = 60,
 	AutoDash = false,
+	DashOnlyWithEnemies = false,
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
@@ -558,6 +559,10 @@ local function autoDashStep()
 	if now < nextDashAt then
 		return
 	end
+	-- Optionally hold the dash until at least one noob is alive.
+	if Settings.DashOnlyWithEnemies and not nearestNoob() then
+		return
+	end
 	nextDashAt = now + 1.2
 	local myRoot = getRootPart()
 	if not myRoot then
@@ -849,6 +854,16 @@ Player:AddToggle({
 	Callback = function(value)
 		Settings.AutoSprint = value
 		setSprint(value)
+	end,
+})
+Player:AddToggle({
+	Text = "Dash Only With Enemies",
+	Description = "Stops auto dash when no noobs are left alive",
+	Icon = "Lucide:shield-off",
+	Default = false,
+	Flag = "ni_dash_enemies",
+	Callback = function(value)
+		Settings.DashOnlyWithEnemies = value
 	end,
 })
 Player:AddToggle({
@@ -1161,6 +1176,7 @@ ctx:OnCleanup(function()
 	Settings.DebugLogs = false
 	Settings.AutoKillAll = false
 	Settings.AutoDash = false
+	Settings.DashOnlyWithEnemies = false
 	Settings.AutoPickup = false
 	Settings.AutoPerkOffer = false
 	Settings.HitAnyDirection = false

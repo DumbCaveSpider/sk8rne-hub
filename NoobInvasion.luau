@@ -445,10 +445,14 @@ end
 local chaseSpeedApplied = false
 local lastChaseMoveAt = 0
 local lastChasePosition = nil
+local lastStuckPos = nil
+local lastStuckCheckAt = 0
 
 local function clearChasePath()
 	lastChasePosition = nil
 	lastChaseMoveAt = 0
+	lastStuckPos = nil
+	lastStuckCheckAt = 0
 	if chaseSpeedApplied then
 		chaseSpeedApplied = false
 		local humanoid = getHumanoid()
@@ -502,6 +506,16 @@ local function autoChaseStep()
 	end
 	if noob.Position.Y > myRoot.Position.Y + 3 then
 		humanoid.Jump = true
+	end
+	-- Stuck detection: if the character hasn't actually moved while chasing, hop over
+	-- whatever is blocking it.
+	if now - lastStuckCheckAt > 0.5 then
+		if lastStuckPos and (myRoot.Position - lastStuckPos).Magnitude < 1.5 then
+			humanoid.Jump = true
+			ctx:Log("[NI] auto chase: stuck, jumping", "warn")
+		end
+		lastStuckPos = myRoot.Position
+		lastStuckCheckAt = now
 	end
 	logOnce("chase_ok", "auto chase: steering toward the nearest noob", "info")
 end

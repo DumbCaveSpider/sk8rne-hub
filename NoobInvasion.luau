@@ -487,6 +487,15 @@ task.spawn(function()
 	logOnce("perk_hooked", "auto perk: watching for server perk offers", "info")
 end)
 
+local SUPER_BY_WEAPON = {
+	Scythe = "rsuper",
+	Hammer = "hsuper",
+}
+
+local function superAttack()
+	return SUPER_BY_WEAPON[LocalPlayer:GetAttribute("Weapon")] or "super"
+end
+
 local nextSuperAt = 0
 local function autoSuperStep()
 	local now = os.clock()
@@ -494,7 +503,7 @@ local function autoSuperStep()
 		return
 	end
 	nextSuperAt = now + 4
-	fireRemote("Attack", "super")
+	fireRemote("Attack", superAttack())
 	logOnce("super_ok", "auto super: firing the super attack", "info")
 end
 

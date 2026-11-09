@@ -11,7 +11,8 @@ local HUB = {
 local genv = (getgenv and getgenv()) or _G
 
 local function import(fileName)
-	local url = HUB.RepoUrl .. "/" .. fileName
+	-- GitHub's raw CDN caches refs/heads/main for a few minutes, so bust it every load.
+	local url = HUB.RepoUrl .. "/" .. fileName .. "?t=" .. tostring(os.time())
 	local ok, source = pcall(function()
 		return game:HttpGet(url)
 	end)
@@ -68,7 +69,7 @@ if not okCore then
 end
 
 local okLibrary, VindUI = pcall(function()
-	return loadstring(game:HttpGet(HUB.LibraryUrl))()
+	return loadstring(game:HttpGet(HUB.LibraryUrl .. "?t=" .. tostring(os.time())))()
 end)
 if not okLibrary or type(VindUI) ~= "table" then
 	warn("[Sk8rne Hub] Could not load the UI library: " .. tostring(VindUI))

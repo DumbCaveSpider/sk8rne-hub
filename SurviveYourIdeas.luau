@@ -63,6 +63,7 @@ local Settings = {
 	AutoWrite = false,
 	WriteWord = "money",
 	AutoWriteWorst = false,
+	AutoMastery = false,
 }
 
 ---------------------------------------------------------------------
@@ -635,6 +636,30 @@ local function autoWriteStep()
 	logOnce("write_word_" .. word, "auto write -> " .. word, "info")
 end
 
+-- Mastery words from ReplicatedStorage.Mastery.MasteryConfig.
+local MASTERY_WORDS = { "tornado", "tsunami", "nuke", "black_hole", "monster", "dinosaur", "gojo", "hero", "earthquake", "kill" }
+local masteryIndex = 0
+local nextMasteryAt = 0
+
+local function autoMasteryStep()
+	local now = os.clock()
+	if now < nextMasteryAt then
+		return
+	end
+	nextMasteryAt = now + 1.5
+	masteryIndex = masteryIndex % #MASTERY_WORDS + 1
+	local word = MASTERY_WORDS[masteryIndex]
+	local remote = findWriteRemote()
+	if not remote then
+		logOnce("mastery_nomote", "auto mastery: no writer submit remote found", "warn")
+		return
+	end
+	pcall(function()
+		remote:FireServer(word)
+	end)
+	logOnce("mastery_word_" .. word, string.format("auto mastery: writing %s (%d/%d)", word, masteryIndex, #MASTERY_WORDS), "info")
+end
+
 local nextStruggleAt = 0
 local function autoStruggleStep()
 	local now = os.clock()
@@ -1007,6 +1032,22 @@ Words:AddToggle({
 	end,
 })
 
+Words:AddToggle({
+	Text = "Auto Mastery Fill",
+	Description = "Cycles a write through every mastery word so their quests progress",
+	Icon = "Lucide:graduation-cap",
+	Default = false,
+	Flag = "syi_auto_mastery",
+	Callback = function(value)
+		Settings.AutoMastery = value
+	end,
+})
+Words:AddParagraph({
+	Title = "Mastery words",
+	Icon = "Lucide:list",
+	Text = "tornado, tsunami, nuke, black_hole, monster, dinosaur, gojo, hero, earthquake, kill",
+})
+
 local Farm = ctx:SubTab("Farm", "Lucide:coins")
 local Survival = ctx:SubTab("Survival", "Lucide:shield")
 
@@ -1210,6 +1251,9 @@ task.spawn(function()
 		if Settings.AutoWrite then
 			pcall(autoWriteStep)
 		end
+		if Settings.AutoMastery then
+			pcall(autoMasteryStep)
+		end
 		task.wait(0.05)
 	end
 end)
@@ -1255,6 +1299,7 @@ ctx:OnCleanup(function()
 	Settings.AutoSwing, Settings.AutoCarry, Settings.AutoClaimDiary = false, false, false
 	Settings.AutoUseItem, Settings.HazardWarn, Settings.AutoDodge = false, false, false
 	Settings.UnlimitedStamina, Settings.AutoWrite = false, false
+	Settings.AutoMastery = false
 	Settings.UnlimitedOxygen = false
 	Settings.AutoStruggle = false
 	for instance, entry in pairs(espEntries) do

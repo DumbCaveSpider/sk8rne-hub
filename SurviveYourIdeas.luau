@@ -57,6 +57,9 @@ local Settings = {
 	UseItemId = nil,
 	HazardWarn = false,
 	AutoDodge = false,
+	UnlimitedStamina = false,
+	AutoWrite = false,
+	WriteWord = "money",
 }
 
 ---------------------------------------------------------------------
@@ -438,6 +441,96 @@ local function hazardStep()
 end
 
 ---------------------------------------------------------------------
+-- Stamina + writer
+---------------------------------------------------------------------
+
+local function unlimitedStaminaStep()
+	local stamina = LocalPlayer:GetAttribute("Stamina")
+	if typeof(stamina) ~= "number" or stamina < 100 then
+		pcall(function()
+			LocalPlayer:SetAttribute("Stamina", 100)
+		end)
+	end
+	local sprintRemotes = ReplicatedStorage:FindFirstChild("SprintRemotes")
+	local setSprint = sprintRemotes and sprintRemotes:FindFirstChild("SetSprint")
+	if setSprint and setSprint:IsA("RemoteEvent") then
+		pcall(function()
+			setSprint:FireServer(true)
+		end)
+	end
+	logOnce("stamina_ok", "unlimited stamina: keeping stamina full", "info")
+end
+
+local function folderPath(...)
+	local current = ReplicatedStorage
+	for _, name in ipairs({ ... }) do
+		current = current:FindFirstChild(name)
+		if not current then
+			return nil
+		end
+	end
+	return current
+end
+
+local WRITE_CANDIDATES = {
+	{ { "MetaWords", "Remotes" }, "Submit" },
+	{ { "MetaWords", "Remotes" }, "Write" },
+	{ { "MetaWords", "Remotes" }, "SubmitWord" },
+	{ { "WriterRemotes" }, "Submit" },
+	{ { "WriterRemotes" }, "Write" },
+	{ { "WriterRemotes" }, "SubmitWord" },
+}
+
+local function findWriteRemote()
+	for _, candidate in ipairs(WRITE_CANDIDATES) do
+		local folder = folderPath(table.unpack(candidate[1]))
+		local remote = folder and folder:FindFirstChild(candidate[2])
+		if remote and (remote:IsA("RemoteEvent") or remote:IsA("UnreliableRemoteEvent")) then
+			return remote
+		end
+	end
+	return nil
+end
+
+task.spawn(function()
+	local metaRemotes = folderPath("MetaWords", "Remotes")
+	local writerRemotes = ReplicatedStorage:FindFirstChild("WriterRemotes")
+	local function names(folder)
+		local list = {}
+		if folder then
+			for _, child in ipairs(folder:GetChildren()) do
+				table.insert(list, child.Name)
+			end
+		end
+		return table.concat(list, ", ")
+	end
+	ctx:Log("[SYI] MetaWords.Remotes: " .. names(metaRemotes), "info")
+	ctx:Log("[SYI] WriterRemotes: " .. names(writerRemotes), "info")
+end)
+
+local nextWriteAt = 0
+local function autoWriteStep()
+	local word = Settings.WriteWord
+	if type(word) ~= "string" or word == "" then
+		return
+	end
+	local now = os.clock()
+	if now < nextWriteAt then
+		return
+	end
+	nextWriteAt = now + 1.5
+	local remote = findWriteRemote()
+	if not remote then
+		logOnce("write_nomote", "auto write: no writer submit remote found (see WriterRemotes log)", "warn")
+		return
+	end
+	pcall(function()
+		remote:FireServer(word)
+	end)
+	logOnce("write_ok", "auto write: submitting warnings as the chosen word", "info")
+end
+
+---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
 
@@ -576,6 +669,16 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
+	Text = "Unlimited Stamina",
+	Description = "Keeps the Stamina attribute full and sprint on",
+	Icon = "Lucide:battery-charging",
+	Default = false,
+	Flag = "syi_unlimited_stamina",
+	Callback = function(value)
+		Settings.UnlimitedStamina = value
+	end,
+})
+Player:AddToggle({
 	Text = "Force Sprint",
 	Description = "Keeps the game's sprint state on",
 	Icon = "Lucide:wind",
@@ -700,6 +803,28 @@ Words:AddParagraph({
 	Title = "Known words",
 	Icon = "Lucide:list",
 	Text = "/admin, /reset, /chaos, /god, /double, /secret, /lag, /undo, /ghost, /jackpot",
+})
+Words:AddSection("Auto Write", "Lucide:send")
+Words:AddToggle({
+	Text = "Auto Write",
+	Description = "Submits the chosen word automatically",
+	Icon = "Lucide:send",
+	Default = false,
+	Flag = "syi_auto_write",
+	Callback = function(value)
+		Settings.AutoWrite = value
+	end,
+})
+Words:AddDropdown({
+	Text = "Best Outcome Word",
+	Description = "Beneficial disasters to write",
+	Icon = "Lucide:sparkles",
+	Options = { "money", "food", "rain", "fly", "gravity", "speed", "jump", "chair", "tree", "cat", "dog" },
+	Default = "money",
+	Flag = "syi_write_word",
+	Callback = function(value)
+		Settings.WriteWord = value
+	end,
 })
 
 local Farm = ctx:SubTab("Farm", "Lucide:coins")
@@ -883,6 +1008,18 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
+		if Settings.UnlimitedStamina then
+			pcall(unlimitedStaminaStep)
+		end
+		if Settings.AutoWrite then
+			pcall(autoWriteStep)
+		end
+		task.wait(0.2)
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
 		if Settings.AutoSwing then
 			pcall(autoSwingStep)
 		end
@@ -921,6 +1058,7 @@ ctx:OnCleanup(function()
 	Settings.EspBoss, Settings.CoinFarm, Settings.AutoRevive = false, false, false
 	Settings.AutoSwing, Settings.AutoCarry, Settings.AutoClaimDiary = false, false, false
 	Settings.AutoUseItem, Settings.HazardWarn, Settings.AutoDodge = false, false, false
+	Settings.UnlimitedStamina, Settings.AutoWrite = false, false
 	for instance, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

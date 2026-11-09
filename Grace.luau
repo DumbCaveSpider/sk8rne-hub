@@ -4,6 +4,7 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getRootPart()
@@ -30,6 +31,9 @@ local Settings = {
 	StopWave = 0,
 	AutoParry = false,
 	BestModifier = false,
+	TriggerLevers = false,
+	LeverEsp = false,
+	LeverRange = 120,
 }
 
 -- Debug logging: each key only logs once so the console stays readable.
@@ -122,6 +126,44 @@ local function createEsp(model, part, info)
 	return entry
 end
 
+-- Levers/sockets are ClickPrompt-tagged prompts and plugs are PickupPlug-tagged models.
+local function nearbyLevers(maxDistance)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return {}
+	end
+	local limit = maxDistance or Settings.LeverRange
+	local found = {}
+	local seen = {}
+	local function consider(instance, kind)
+		local prompt
+		if instance:IsA("ProximityPrompt") then
+			prompt = instance
+		else
+			prompt = instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+		end
+		if not prompt or seen[prompt] then
+			return
+		end
+		local part = prompt.Parent
+		if not part or not part:IsA("BasePart") then
+			return
+		end
+		seen[prompt] = true
+		local distance = (part.Position - myRoot.Position).Magnitude
+		if distance <= limit then
+			table.insert(found, { Prompt = prompt, Kind = kind, Part = part, Distance = distance })
+		end
+	end
+	for _, prompt in ipairs(CollectionService:GetTagged("ClickPrompt")) do
+		consider(prompt, "LEVER")
+	end
+	for _, plug in ipairs(CollectionService:GetTagged("PickupPlug")) do
+		consider(plug, "PLUG")
+	end
+	return found
+end
+
 local function espStep()
 	local myRoot = getRootPart()
 	local visible = {}
@@ -143,6 +185,22 @@ local function espStep()
 					end
 				end
 			end
+		end
+	end
+	if myRoot and Settings.LeverEsp then
+		for _, lever in ipairs(nearbyLevers(Settings.EspDistance)) do
+			local color = lever.Kind == "PLUG" and Color3.fromRGB(255, 220, 60) or Color3.fromRGB(120, 220, 255)
+			local key = lever.Part
+			visible[key] = true
+			local entry = espEntries[key]
+			if not entry then
+				entry = createEsp(key, lever.Part, { Title = lever.Kind, Color = color })
+			end
+			entry.Gui.Adornee = lever.Part
+			entry.Label.Text = string.format("%s\n%d studs", lever.Kind, math.floor(lever.Distance))
+			entry.Label.TextColor3 = color
+			entry.Highlight.FillColor = color
+			entry.Highlight.OutlineColor = color
 		end
 	end
 	for model, entry in pairs(espEntries) do
@@ -619,6 +677,35 @@ task.spawn(function()
 	end)
 end)
 
+-- TriggerPrompt is the remote ClickPrompt fires for levers and sockets.
+local TriggerPrompt = ReplicatedStorage:FindFirstChild("TriggerPrompt")
+local nextLeverAt = 0
+
+local function triggerLevers()
+	if not TriggerPrompt then
+		TriggerPrompt = ReplicatedStorage:FindFirstChild("TriggerPrompt")
+	end
+	if not TriggerPrompt then
+		logOnce("levers_noremote", "levers: TriggerPrompt remote not found", "warn")
+		return
+	end
+	local now = os.clock()
+	if now < nextLeverAt then
+		return
+	end
+	nextLeverAt = now + 0.2
+	local count = 0
+	for _, lever in ipairs(nearbyLevers(Settings.LeverRange)) do
+		pcall(function()
+			TriggerPrompt:FireServer(lever.Prompt)
+		end)
+		count += 1
+	end
+	if count > 0 then
+		logOnce("levers_ok", string.format("levers: triggering %d nearby prompt(s)", count), "info")
+	end
+end
+
 ---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
@@ -645,7 +732,6 @@ end
 local Player = ctx:SubTab("Player", "Lucide:user")
 local Visuals = ctx:SubTab("Visuals", "Lucide:eye")
 local Events = ctx:SubTab("Events", "Lucide:alert-triangle")
-local Reprieve = ctx:SubTab("REPRIEVE", "Lucide:shield")
 
 Player:AddSection("Movement", "Lucide:gauge")
 Player:AddToggle({
@@ -726,6 +812,42 @@ Visuals:AddSlider({
 	end,
 })
 
+Visuals:AddSection("Levers & Plugs", "Lucide:plug")
+Visuals:AddToggle({
+	Text = "Trigger Levers/Plugs",
+	Description = "Fires every nearby lever and plug prompt",
+	Icon = "Lucide:zap",
+	Default = false,
+	Flag = "gr_trigger_levers",
+	Callback = function(value)
+		Settings.TriggerLevers = value
+	end,
+})
+Visuals:AddToggle({
+	Text = "Lever/Plug ESP",
+	Description = "Highlights levers, sockets and plugs through walls",
+	Icon = "Lucide:plug-2",
+	Default = false,
+	Flag = "gr_lever_esp",
+	Callback = function(value)
+		Settings.LeverEsp = value
+	end,
+})
+Visuals:AddSlider({
+	Text = "Lever Range",
+	Description = "How far away levers and plugs are triggered",
+	Icon = "Lucide:radar",
+	Min = 10,
+	Max = 500,
+	Default = 120,
+	Increment = 10,
+	Suffix = " studs",
+	Flag = "gr_lever_range",
+	Callback = function(value)
+		Settings.LeverRange = value
+	end,
+})
+
 Visuals:AddSection("Navigation", "Lucide:map")
 Visuals:AddToggle({
 	Text = "Door Waypoint",
@@ -756,8 +878,8 @@ Events:AddToggle({
 	end,
 })
 
-Reprieve:AddSection("Parry", "Lucide:shield")
-Reprieve:AddToggle({
+Player:AddSection("Parry", "Lucide:shield")
+Player:AddToggle({
 	Text = "No Parry Cooldown",
 	Description = "Removes the parry recharge so you can parry instantly",
 	Icon = "Lucide:shield",
@@ -767,7 +889,7 @@ Reprieve:AddToggle({
 		Settings.NoParryCooldown = value
 	end,
 })
-Reprieve:AddToggle({
+Player:AddToggle({
 	Text = "Auto Parry",
 	Description = "Fires parry attempts from your camera automatically",
 	Icon = "Lucide:shield-check",
@@ -779,19 +901,9 @@ Reprieve:AddToggle({
 		ctx:Log("[GRACE] auto parry " .. (value and "enabled" or "disabled"), "info")
 	end,
 })
-Reprieve:AddToggle({
-	Text = "Pick Best Modifier",
-	Description = "Votes for the vote option with the highest XP multiplier",
-	Icon = "Lucide:trending-up",
-	Default = false,
-	Flag = "gr_best_modifier",
-	Callback = function(value)
-		Settings.BestModifier = value
-	end,
-})
 
-Reprieve:AddSection("Rounds", "Lucide:repeat")
-Reprieve:AddToggle({
+Events:AddSection("Rounds", "Lucide:repeat")
+Events:AddToggle({
 	Text = "Auto Start Next Round",
 	Description = "Fires the round start trigger automatically",
 	Icon = "Lucide:repeat",
@@ -805,7 +917,7 @@ Reprieve:AddToggle({
 		end
 	end,
 })
-Reprieve:AddTextbox({
+Events:AddTextbox({
 	Text = "Stop At Wave",
 	Description = "Auto-start stops after this many rounds (0 = never)",
 	Icon = "Lucide:flag",
@@ -816,10 +928,29 @@ Reprieve:AddTextbox({
 		Settings.StopWave = math.max(tonumber(value) or 0, 0)
 	end,
 })
+Events:AddToggle({
+	Text = "Pick Best Modifier",
+	Description = "Votes for the vote option with the highest XP multiplier",
+	Icon = "Lucide:trending-up",
+	Default = false,
+	Flag = "gr_best_modifier",
+	Callback = function(value)
+		Settings.BestModifier = value
+	end,
+})
 
 ---------------------------------------------------------------------
 -- Background loops
 ---------------------------------------------------------------------
+
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.TriggerLevers then
+			pcall(triggerLevers)
+		end
+		task.wait(0.15)
+	end
+end)
 
 task.spawn(function()
 	while ctx:Alive() do
@@ -911,6 +1042,7 @@ ctx:OnCleanup(function()
 	Settings.NoParryCooldown, Settings.AutoStartRound = false, false
 	Settings.AutoParry = false
 	Settings.BestModifier = false
+	Settings.TriggerLevers, Settings.LeverEsp = false, false
 	if parryAttachment then
 		parryAttachment:Destroy()
 		parryAttachment = nil

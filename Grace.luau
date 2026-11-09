@@ -37,6 +37,8 @@ local Settings = {
 	LeverRange = 120,
 	SafeZoneWaypoint = false,
 	DestroyMetalDoors = false,
+	HidboxEsp = false,
+	HidboxWaypoint = false,
 }
 
 -- Debug logging: each key only logs once so the console stays readable.
@@ -248,6 +250,28 @@ local function espStep()
 			entry.Highlight.OutlineColor = color
 		end
 	end
+	if myRoot and Settings.HidboxEsp then
+		for _, hidbox in ipairs(CollectionService:GetTagged("Hidbox")) do
+			local part
+			if hidbox:IsA("BasePart") then
+				part = hidbox
+			else
+				part = hidbox:FindFirstChildWhichIsA("BasePart", true)
+			end
+			if part then
+				local distance = (part.Position - myRoot.Position).Magnitude
+				if distance <= Settings.EspDistance then
+					visible[hidbox] = true
+					local entry = espEntries[hidbox]
+					if not entry then
+						entry = createEsp(hidbox, part, { Title = "HIDBOX", Color = Color3.fromRGB(255, 200, 120) })
+					end
+					entry.Gui.Adornee = part
+					entry.Label.Text = string.format("HIDBOX\n%d studs", math.floor(distance))
+				end
+			end
+		end
+	end
 	for model, entry in pairs(espEntries) do
 		if not visible[model] then
 			entry.Gui:Destroy()
@@ -382,6 +406,74 @@ local function waypointStep()
 		waypointHighlight.Adornee = adorn
 		waypointHighlight.Parent = adorn
 	end
+end
+
+---------------------------------------------------------------------
+-- Hidboxes
+---------------------------------------------------------------------
+
+-- Hiding spots are tagged "Hidbox" (e.g. workspace.Rooms["15"].Hidbox).
+local hidboxGui = nil
+local hidboxLabel = nil
+
+local function nearestHidbox()
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	local best, bestDistance = nil, math.huge
+	for _, hidbox in ipairs(CollectionService:GetTagged("Hidbox")) do
+		local part
+		if hidbox:IsA("BasePart") then
+			part = hidbox
+		else
+			part = hidbox:FindFirstChildWhichIsA("BasePart", true)
+		end
+		if part then
+			local distance = (part.Position - myRoot.Position).Magnitude
+			if distance < bestDistance then
+				best, bestDistance = part, distance
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local function removeHidboxWaypoint()
+	if hidboxGui then
+		hidboxGui:Destroy()
+		hidboxGui = nil
+		hidboxLabel = nil
+	end
+end
+
+local function hidboxWaypointStep()
+	local part, distance = nearestHidbox()
+	if not part then
+		removeHidboxWaypoint()
+		return
+	end
+	if not hidboxGui then
+		hidboxGui = Instance.new("BillboardGui")
+		hidboxGui.Name = "Sk8rneHidbox"
+		hidboxGui.Size = UDim2.fromOffset(160, 44)
+		hidboxGui.StudsOffset = Vector3.new(0, 4, 0)
+		hidboxGui.AlwaysOnTop = true
+		hidboxGui.Parent = overlay
+		hidboxLabel = Instance.new("TextLabel")
+		hidboxLabel.Size = UDim2.fromScale(1, 1)
+		hidboxLabel.BackgroundTransparency = 1
+		hidboxLabel.Font = Enum.Font.GothamBold
+		hidboxLabel.TextSize = 14
+		hidboxLabel.TextColor3 = Color3.fromRGB(255, 200, 120)
+		hidboxLabel.TextStrokeTransparency = 0.35
+		hidboxLabel.Text = "HIDBOX"
+		hidboxLabel.Parent = hidboxGui
+	end
+	hidboxGui.Adornee = part
+	hidboxGui.Enabled = true
+	hidboxLabel.Text = string.format("HIDBOX\n%d studs", math.floor(distance))
+	logOnce("hidbox_found", "hidbox: targeting " .. part:GetFullName(), "info")
 end
 
 ---------------------------------------------------------------------
@@ -1177,6 +1269,29 @@ Visuals:AddToggle({
 		Settings.DestroyMetalDoors = value
 	end,
 })
+Visuals:AddToggle({
+	Text = "Hidbox ESP",
+	Description = "Highlights every hiding spot",
+	Icon = "Lucide:box",
+	Default = false,
+	Flag = "gr_hidbox_esp",
+	Callback = function(value)
+		Settings.HidboxEsp = value
+	end,
+})
+Visuals:AddToggle({
+	Text = "Hidbox Waypoint",
+	Description = "Marks the nearest hiding spot",
+	Icon = "Lucide:map-pin",
+	Default = false,
+	Flag = "gr_hidbox_waypoint",
+	Callback = function(value)
+		Settings.HidboxWaypoint = value
+		if not value then
+			removeHidboxWaypoint()
+		end
+	end,
+})
 
 Events:AddSection("Event Notifier", "Lucide:alert-triangle")
 Events:AddToggle({
@@ -1376,6 +1491,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.HidboxWaypoint then
+			pcall(hidboxWaypointStep)
+		end
+		task.wait(0.3)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid then
@@ -1402,7 +1526,9 @@ ctx:OnCleanup(function()
 	Settings.BestModifier = false
 	Settings.TriggerLevers, Settings.LeverEsp = false, false
 	Settings.SafeZoneWaypoint, Settings.DestroyMetalDoors = false, false
+	Settings.HidboxEsp, Settings.HidboxWaypoint = false, false
 	removeSafeZone()
+	removeHidboxWaypoint()
 	if parryAttachment then
 		parryAttachment:Destroy()
 		parryAttachment = nil

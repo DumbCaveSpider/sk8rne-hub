@@ -86,7 +86,17 @@ local function createEsp(model, part, text, color)
 	label.Text = text
 	label.Parent = gui
 
-	local entry = { Gui = gui, Label = label }
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "Sk8rneEspHighlight"
+	highlight.Adornee = model
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.FillColor = color
+	highlight.FillTransparency = 0.7
+	highlight.OutlineColor = color
+	highlight.OutlineTransparency = 0
+	highlight.Parent = model
+
+	local entry = { Gui = gui, Label = label, Highlight = highlight }
 	espEntries[model] = entry
 	return entry
 end
@@ -173,10 +183,13 @@ local function espStep()
 		entry.Gui.Adornee = target.Part
 		entry.Label.Text = target.Text
 		entry.Label.TextColor3 = target.Color
+		entry.Highlight.FillColor = target.Color
+		entry.Highlight.OutlineColor = target.Color
 	end
 	for model, entry in pairs(espEntries) do
 		if not visible[model] then
 			entry.Gui:Destroy()
+			entry.Highlight:Destroy()
 			espEntries[model] = nil
 		end
 	end
@@ -185,6 +198,9 @@ end
 local function clearEsp()
 	for _, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
+		if entry.Highlight then
+			entry.Highlight:Destroy()
+		end
 	end
 	table.clear(espEntries)
 end

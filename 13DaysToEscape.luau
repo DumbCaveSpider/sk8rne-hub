@@ -133,6 +133,39 @@ local function readyToolType()
 	return getToolType()
 end
 
+local function isTarget(npc, targetName)
+	if npc.Name == targetName then
+		return true
+	end
+	local kind1, num1 = targetName:match("^(%a+)(%d+)$")
+	local kind2, num2 = npc.Name:match("^(%a+)(%d+)$")
+	return kind1 ~= nil and kind1 == kind2 and tonumber(num1) == tonumber(num2)
+end
+
+-- The NPC named by the current OJ assassination offer, if the offer is an assassination.
+local function findAssignedTarget()
+	if not OJTrade then
+		return nil
+	end
+	local ok, offer = pcall(OJTrade.decode, LocalPlayer:GetAttribute("OJTradeOffer"))
+	if not ok or not offer or offer.Need ~= "Assassination" then
+		return nil
+	end
+	local targetName = offer.Target
+	if not targetName then
+		return nil
+	end
+	for _, npc in ipairs(CollectionService:GetTagged("PrisonAmbientNPC")) do
+		if isTarget(npc, targetName) then
+			local humanoid = npc:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 then
+				return npc
+			end
+		end
+	end
+	return nil
+end
+
 local Settings = {
 	AutoPunch = false,
 	AutoAttack = false,
@@ -151,6 +184,8 @@ local Settings = {
 	Fov = 100,
 	TargetEsp = false,
 	FreezeSuspicion = false,
+	AutoKillTarget = false,
+	KillRange = 6,
 }
 
 ---------------------------------------------------------------------
@@ -160,6 +195,7 @@ local Settings = {
 local swingCount = 0
 local nextPunchAt = 0
 local nextToolAt = 0
+local nextKillAt = 0
 
 local function toolCooldown(toolType)
 	return TOOL_COOLDOWNS[toolType] or 0.5
@@ -212,6 +248,64 @@ local function fireTool()
 	-- Dig tools and the hammer report the camera position; melee tools do not.
 	local position = (DIG_TOOLS[toolType] or BARRIER_TOOLS[toolType]) and camera.CFrame.Position or nil
 	remote:FireServer(camera.CFrame.LookVector, swingCount, position)
+end
+
+-- Walks to, aims at and repeatedly strikes the current OJ assassination target.
+local function autoKillStep()
+	if LocalPlayer:GetAttribute("StealingBook") or LocalPlayer:GetAttribute("DraggingBody") then
+		return
+	end
+	if not actionsUnblocked() then
+		return
+	end
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not (myRoot and humanoid and humanoid.Health > 0) then
+		return
+	end
+	if humanoid.Sit then
+		return
+	end
+	local npc = findAssignedTarget()
+	if not npc then
+		return
+	end
+	local targetRoot = npc:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then
+		return
+	end
+	local distance = (targetRoot.Position - myRoot.Position).Magnitude
+	if distance > 200 then
+		return
+	end
+	-- Keep closing in so the character faces the target and stays in melee range.
+	humanoid:MoveTo(targetRoot.Position)
+	if distance > Settings.KillRange then
+		return
+	end
+	local now = os.clock()
+	if now < nextKillAt then
+		return
+	end
+	local direction = (targetRoot.Position - myRoot.Position).Unit
+	local toolType = getToolType()
+	if toolType then
+		if not MELEE_TOOLS[toolType] then
+			return
+		end
+		nextKillAt = now + toolCooldown(toolType) + 0.03
+		swingCount += 1
+		local remote = getRemote("PrisonUtensilUse")
+		if remote then
+			remote:FireServer(direction, swingCount, nil)
+		end
+	else
+		nextKillAt = now + 0.55 + 0.03
+		local remote = getRemote("PrisonPunch")
+		if remote then
+			remote:FireServer(direction)
+		end
+	end
 end
 
 ---------------------------------------------------------------------
@@ -316,15 +410,6 @@ local function guardAlertLevel(guard, now, manhunt)
 		return 1
 	end
 	return 0
-end
-
-local function isTarget(npc, targetName)
-	if npc.Name == targetName then
-		return true
-	end
-	local kind1, num1 = targetName:match("^(%a+)(%d+)$")
-	local kind2, num2 = npc.Name:match("^(%a+)(%d+)$")
-	return kind1 ~= nil and kind1 == kind2 and tonumber(num1) == tonumber(num2)
 end
 
 local function espAnchor(model)
@@ -580,6 +665,32 @@ Combat:AddToggle({
 	end,
 })
 
+Combat:AddSection("Assassination", "Lucide:target")
+Combat:AddToggle({
+	Text = "Auto Kill Target",
+	Description = "Walks to and attacks your current OJ assassination target",
+	Icon = "Lucide:crosshair",
+	Default = false,
+	Flag = "13de_auto_kill_target",
+	Callback = function(value)
+		Settings.AutoKillTarget = value
+	end,
+})
+Combat:AddSlider({
+	Text = "Kill Range",
+	Description = "How close you must be before attacking the target",
+	Icon = "Lucide:target",
+	Min = 3,
+	Max = 15,
+	Default = 6,
+	Increment = 1,
+	Suffix = " studs",
+	Flag = "13de_kill_range",
+	Callback = function(value)
+		Settings.KillRange = value
+	end,
+})
+
 Escape:AddSection("Digging", "Lucide:shovel")
 Escape:AddToggle({
 	Text = "Auto Dig",
@@ -814,6 +925,17 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
+		if Settings.AutoKillTarget then
+			pcall(autoKillStep)
+			task.wait(0.1)
+		else
+			task.wait(0.2)
+		end
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
 		if LocalPlayer:GetAttribute("RunEnded") or LocalPlayer:GetAttribute("DeathPresented") then
 			chopToken = nil
 			chopCuts = 0
@@ -879,6 +1001,7 @@ ctx:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), applyFov)
 
 ctx:OnCleanup(function()
 	Settings.AutoPunch, Settings.AutoAttack, Settings.AutoDig, Settings.AutoBreak = false, false, false, false
+	Settings.AutoKillTarget = false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

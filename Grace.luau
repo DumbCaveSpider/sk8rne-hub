@@ -129,6 +129,51 @@ local function entityInfo(name)
 	return ENTITY_INFO[name] or ENTITY_INFO[string.lower(name)]
 end
 
+-- Log every entity event as it starts, including exactly how to counter it.
+local trackedEntities = {}
+
+local function logEntity(instance, added)
+	local info = entityInfo(instance.Name)
+	if not info then
+		return
+	end
+	if added then
+		if trackedEntities[instance] then
+			return
+		end
+		trackedEntities[instance] = true
+		ctx:Log(string.format("[GRACE] EVENT: %s — %s", info.Title, info.Counter), "warn")
+	elseif trackedEntities[instance] then
+		trackedEntities[instance] = nil
+		ctx:Log(string.format("[GRACE] %s cleared", info.Title), "info")
+	end
+end
+
+task.spawn(function()
+	for _, model in ipairs(workspace:GetChildren()) do
+		logEntity(model, true)
+	end
+	ctx:Connect(workspace.ChildAdded, function(instance)
+		logEntity(instance, true)
+	end)
+	ctx:Connect(workspace.ChildRemoved, function(instance)
+		logEntity(instance, false)
+	end)
+	local playerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+	if not playerGui then
+		return
+	end
+	for _, child in ipairs(playerGui:GetChildren()) do
+		logEntity(child, true)
+	end
+	ctx:Connect(playerGui.ChildAdded, function(instance)
+		logEntity(instance, true)
+	end)
+	ctx:Connect(playerGui.ChildRemoved, function(instance)
+		logEntity(instance, false)
+	end)
+end)
+
 ---------------------------------------------------------------------
 -- Overlay
 ---------------------------------------------------------------------

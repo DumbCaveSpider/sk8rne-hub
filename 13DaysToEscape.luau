@@ -193,6 +193,7 @@ local Settings = {
 	BreakCameras = false,
 	TrashPickup = false,
 	TrashRange = 12,
+	BookEsp = false,
 }
 
 ---------------------------------------------------------------------
@@ -281,7 +282,10 @@ local function autoKillStep()
 	if not targetRoot then
 		return
 	end
-	local distance = (targetRoot.Position - myRoot.Position).Magnitude
+	-- The game resolves melee from the head/eye, so the reach check and swing vector use it.
+	local head = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+	local origin = (head and head.Position) or myRoot.Position
+	local distance = (targetRoot.Position - origin).Magnitude
 	if distance > 200 then
 		return
 	end
@@ -294,7 +298,7 @@ local function autoKillStep()
 	if now < nextKillAt then
 		return
 	end
-	local direction = (targetRoot.Position - myRoot.Position).Unit
+	local direction = (targetRoot.Position - origin).Unit
 	local toolType = getToolType()
 	if toolType then
 		if not MELEE_TOOLS[toolType] then
@@ -656,6 +660,7 @@ local ESP_COLORS = {
 	Warden = Color3.fromRGB(200, 96, 255),
 	Sentry = Color3.fromRGB(96, 220, 255),
 	Target = Color3.fromRGB(255, 220, 60),
+	Book = Color3.fromRGB(96, 220, 255),
 }
 
 local function guardAlertLevel(guard, now, manhunt)
@@ -675,6 +680,9 @@ local function guardAlertLevel(guard, now, manhunt)
 end
 
 local function espAnchor(model)
+	if model:IsA("BasePart") then
+		return model
+	end
 	return model:FindFirstChild("HumanoidRootPart")
 		or model:FindFirstChild("Lens")
 		or model.PrimaryPart
@@ -700,6 +708,57 @@ local function createEsp(model, part, category)
 	local entry = { Gui = gui, Label = label }
 	espEntries[model] = entry
 	return entry
+end
+
+local function findTargetBook()
+	local requested = tonumber(LocalPlayer:GetAttribute("LibraryJobBook"))
+	if not requested then
+		return nil
+	end
+	for prompt in pairs(takeBookPrompts) do
+		if
+			prompt:IsDescendantOf(workspace)
+			and tonumber(prompt:GetAttribute("BookNumber")) == requested
+			and prompt:GetAttribute("BookReturnOnly") ~= true
+		then
+			return prompt.Parent
+		end
+	end
+	return nil
+end
+
+local npcHighlight = nil
+local bookHighlight = nil
+
+local function updateHighlight(current, model, color)
+	if not model then
+		if current then
+			current:Destroy()
+		end
+		return nil
+	end
+	if current and current.Parent == model then
+		return current
+	end
+	if current then
+		current:Destroy()
+	end
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "Sk8rne13DHighlight"
+	highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+	highlight.FillTransparency = 0.65
+	highlight.FillColor = color
+	highlight.OutlineColor = color
+	highlight.Adornee = model
+	highlight.Parent = model
+	return highlight
+end
+
+local function updateTargetHighlights()
+	local npc = Settings.TargetEsp and findAssignedTarget() or nil
+	npcHighlight = updateHighlight(npcHighlight, npc, ESP_COLORS.Target)
+	local book = Settings.BookEsp and findTargetBook() or nil
+	bookHighlight = updateHighlight(bookHighlight, book, ESP_COLORS.Book)
 end
 
 local function collectEspTargets()
@@ -807,6 +866,20 @@ local function collectEspTargets()
 		end
 	end
 
+	if Settings.BookEsp then
+		local bookModel = findTargetBook()
+		if bookModel then
+			local part = espAnchor(bookModel)
+			if part then
+				local distance = (part.Position - myRoot.Position).Magnitude
+				if distance <= Settings.EspDistance then
+					local requested = tonumber(LocalPlayer:GetAttribute("LibraryJobBook")) or 0
+					add(bookModel, "Book", string.format("BOOK #%03d\n%d studs", requested, math.floor(distance)))
+				end
+			end
+		end
+	end
+
 	return targets
 end
 
@@ -829,6 +902,7 @@ local function espStep()
 			espEntries[model] = nil
 		end
 	end
+	updateTargetHighlights()
 end
 
 local function clearEsp()
@@ -836,10 +910,23 @@ local function clearEsp()
 		entry.Gui:Destroy()
 	end
 	table.clear(espEntries)
+	if npcHighlight then
+		npcHighlight:Destroy()
+		npcHighlight = nil
+	end
+	if bookHighlight then
+		bookHighlight:Destroy()
+		bookHighlight = nil
+	end
 end
 
 local function anyEspEnabled()
-	return Settings.GuardEsp or Settings.CameraEsp or Settings.WardenEsp or Settings.SentryEsp or Settings.TargetEsp
+	return Settings.GuardEsp
+		or Settings.CameraEsp
+		or Settings.WardenEsp
+		or Settings.SentryEsp
+		or Settings.TargetEsp
+		or Settings.BookEsp
 end
 
 local function getScheduleText()
@@ -1130,6 +1217,16 @@ Visuals:AddToggle({
 		Settings.TargetEsp = value
 	end,
 })
+Visuals:AddToggle({
+	Text = "Book ESP",
+	Description = "Highlights the library book your job asks for",
+	Icon = "Lucide:book",
+	Default = false,
+	Flag = "13de_book_esp",
+	Callback = function(value)
+		Settings.BookEsp = value
+	end,
+})
 
 Visuals:AddSection("Cameras", "Lucide:camera")
 Visuals:AddToggle({
@@ -1334,7 +1431,8 @@ task.spawn(function()
 			pcall(espStep)
 			task.wait(0.1)
 		else
-			task.wait(0.25)
+			pcall(clearEsp)
+			task.wait(0.5)
 		end
 	end
 end)

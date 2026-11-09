@@ -62,6 +62,7 @@ local Settings = {
 	AutoStruggle = false,
 	AutoKillAura = false,
 	AuraRange = 30,
+	AutoWriterPrompt = false,
 	AutoWrite = false,
 	WriteWord = "money",
 	AutoWriteWorst = false,
@@ -714,6 +715,36 @@ local function autoKillAuraStep()
 	logOnce("aura_ok", "auto kill aura: hitting nearby creatures", "info")
 end
 
+local function fireWriterPrompt(writerId, seconds, slot)
+	local writerRemotes = ReplicatedStorage:FindFirstChild("WriterRemotes")
+	local prompt = writerRemotes and writerRemotes:FindFirstChild("WriterPrompt")
+	if not (prompt and prompt:IsA("RemoteEvent")) then
+		logOnce("prompt_missing", "WriterRemotes.WriterPrompt not found", "warn")
+		return false
+	end
+	local args = { writerId or 19, seconds or 30, slot or 1 }
+	local fired = false
+	if type(firesignal) == "function" then
+		local ok = pcall(function()
+			firesignal(prompt.OnClientEvent, table.unpack(args))
+		end)
+		fired = fired or ok
+	end
+	if type(getconnections) == "function" then
+		local ok, connections = pcall(getconnections, prompt.OnClientEvent)
+		if ok and type(connections) == "table" then
+			for _, connection in ipairs(connections) do
+				pcall(function()
+					connection.Fire(table.unpack(args))
+				end)
+				fired = true
+			end
+		end
+	end
+	logOnce("prompt_ok", "writer prompt: fired the WriterPrompt signal", "info")
+	return fired
+end
+
 ---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
@@ -1083,6 +1114,25 @@ Words:AddParagraph({
 	Text = "tornado, tsunami, nuke, black_hole, monster, dinosaur, gojo, hero, earthquake, kill",
 })
 
+Words:AddButton({
+	Text = "Force Writer Prompt",
+	Description = "Fires WriterRemotes.WriterPrompt locally (19, 30, 1)",
+	Icon = "Lucide:bell",
+	Callback = function()
+		fireWriterPrompt(19, 30, 1)
+	end,
+})
+Words:AddToggle({
+	Text = "Auto Writer Prompt",
+	Description = "Fires the writer prompt every 3s",
+	Icon = "Lucide:repeat",
+	Default = false,
+	Flag = "syi_auto_prompt",
+	Callback = function(value)
+		Settings.AutoWriterPrompt = value
+	end,
+})
+
 local Farm = ctx:SubTab("Farm", "Lucide:coins")
 local Survival = ctx:SubTab("Survival", "Lucide:shield")
 
@@ -1301,6 +1351,9 @@ task.spawn(function()
 		if Settings.UnlimitedStamina then
 			pcall(unlimitedStaminaStep)
 		end
+		if Settings.AutoWriterPrompt then
+			pcall(fireWriterPrompt, 19, 30, 1)
+		end
 		if Settings.UnlimitedOxygen then
 			pcall(unlimitedOxygenStep)
 		end
@@ -1362,6 +1415,7 @@ ctx:OnCleanup(function()
 	Settings.UnlimitedOxygen = false
 	Settings.AutoStruggle = false
 	Settings.AutoKillAura = false
+	Settings.AutoWriterPrompt = false
 	for instance, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

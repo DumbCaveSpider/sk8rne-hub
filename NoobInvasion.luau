@@ -95,7 +95,6 @@ local Settings = {
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
-	NoCooldown = false,
 	HitAnyDirection = false,
 	AutoChase = false,
 	ChaseStop = 8,
@@ -306,7 +305,7 @@ local function autoAttackStep()
 	if now < nextAttackAt then
 		return
 	end
-	nextAttackAt = now + (Settings.NoCooldown and 0.05 or 0.25)
+	nextAttackAt = now + 0.25
 	if Settings.HitAnyDirection then
 		faceNearestNoob()
 	end
@@ -342,7 +341,7 @@ local function autoKillAllStep()
 	if now < nextKillAllAt then
 		return
 	end
-	nextKillAllAt = now + (Settings.NoCooldown and 0.05 or 0.15)
+	nextKillAllAt = now + 0.15
 	if Settings.HitAnyDirection then
 		faceNearestNoob()
 	end
@@ -854,16 +853,6 @@ Player:AddToggle({
 })
 
 Combat:AddToggle({
-	Text = "No Cooldown",
-	Description = "Fires attacks every 0.05s instead of the normal rate",
-	Icon = "Lucide:timer-off",
-	Default = false,
-	Flag = "ni_no_cd",
-	Callback = function(value)
-		Settings.NoCooldown = value
-	end,
-})
-Combat:AddToggle({
 	Text = "Hit Any Direction",
 	Description = "Snaps to face the nearest noob before every attack",
 	Icon = "Lucide:compass",
@@ -1191,7 +1180,6 @@ ctx:OnCleanup(function()
 	Settings.AutoDash = false
 	Settings.AutoPickup = false
 	Settings.AutoPerkOffer = false
-	Settings.NoCooldown = false
 	Settings.HitAnyDirection = false
 	Settings.AutoChase = false
 	Settings.AutoSuper = false

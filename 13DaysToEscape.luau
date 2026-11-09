@@ -195,6 +195,7 @@ local Settings = {
 	TrashRange = 12,
 	BookEsp = false,
 	AutoEscape = false,
+	MoneyEsp = false,
 }
 
 ---------------------------------------------------------------------
@@ -815,6 +816,7 @@ local ESP_COLORS = {
 	Sentry = Color3.fromRGB(96, 220, 255),
 	Target = Color3.fromRGB(255, 220, 60),
 	Book = Color3.fromRGB(96, 220, 255),
+	Money = Color3.fromRGB(120, 255, 120),
 }
 
 local function guardAlertLevel(guard, now, manhunt)
@@ -883,6 +885,7 @@ end
 
 local npcHighlight = nil
 local bookHighlight = nil
+local moneyHighlights = {}
 
 local function updateHighlight(current, model, color)
 	if not model then
@@ -913,6 +916,40 @@ local function updateTargetHighlights()
 	npcHighlight = updateHighlight(npcHighlight, npc, ESP_COLORS.Target)
 	local book = Settings.BookEsp and findTargetBook() or nil
 	bookHighlight = updateHighlight(bookHighlight, book, ESP_COLORS.Book)
+end
+
+local function updateMoneyHighlights()
+	local keep = {}
+	if Settings.MoneyEsp then
+		for prompt in pairs(cashPrompts) do
+			if prompt:IsDescendantOf(workspace) then
+				local amount = prompt.ObjectText or ""
+				if amount ~= "" and amount ~= "$0" then
+					local part = nearestPart(prompt)
+					if part then
+						keep[part] = true
+						if not moneyHighlights[part] then
+							local highlight = Instance.new("Highlight")
+							highlight.Name = "Sk8rne13DMoney"
+							highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+							highlight.FillColor = ESP_COLORS.Money
+							highlight.FillTransparency = 0.7
+							highlight.OutlineColor = ESP_COLORS.Money
+							highlight.Adornee = part
+							highlight.Parent = part
+							moneyHighlights[part] = highlight
+						end
+					end
+				end
+			end
+		end
+	end
+	for part, highlight in pairs(moneyHighlights) do
+		if not keep[part] then
+			highlight:Destroy()
+			moneyHighlights[part] = nil
+		end
+	end
 end
 
 local function collectEspTargets()
@@ -1034,6 +1071,23 @@ local function collectEspTargets()
 		end
 	end
 
+	if Settings.MoneyEsp then
+		for prompt in pairs(cashPrompts) do
+			if prompt:IsDescendantOf(workspace) then
+				local amount = prompt.ObjectText or ""
+				if amount ~= "" and amount ~= "$0" then
+					local part = nearestPart(prompt)
+					if part then
+						local distance = (part.Position - myRoot.Position).Magnitude
+						if distance <= Settings.EspDistance then
+							add(part, "Money", string.format("MONEY %s\n%d studs", amount, math.floor(distance)))
+						end
+					end
+				end
+			end
+		end
+	end
+
 	return targets
 end
 
@@ -1057,6 +1111,7 @@ local function espStep()
 		end
 	end
 	updateTargetHighlights()
+	updateMoneyHighlights()
 end
 
 local function clearEsp()
@@ -1072,6 +1127,10 @@ local function clearEsp()
 		bookHighlight:Destroy()
 		bookHighlight = nil
 	end
+	for _, highlight in pairs(moneyHighlights) do
+		highlight:Destroy()
+	end
+	table.clear(moneyHighlights)
 end
 
 local function anyEspEnabled()
@@ -1081,6 +1140,7 @@ local function anyEspEnabled()
 		or Settings.SentryEsp
 		or Settings.TargetEsp
 		or Settings.BookEsp
+		or Settings.MoneyEsp
 end
 
 local function getScheduleText()
@@ -1391,6 +1451,18 @@ Visuals:AddToggle({
 	Flag = "13de_book_esp",
 	Callback = function(value)
 		Settings.BookEsp = value
+	end,
+})
+
+Visuals:AddSection("Money", "Lucide:wallet")
+Visuals:AddToggle({
+	Text = "Money ESP",
+	Description = "Labels cash piles you can steal with their value",
+	Icon = "Lucide:wallet",
+	Default = false,
+	Flag = "13de_money_esp",
+	Callback = function(value)
+		Settings.MoneyEsp = value
 	end,
 })
 

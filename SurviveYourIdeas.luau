@@ -59,6 +59,7 @@ local Settings = {
 	AutoDodge = false,
 	UnlimitedStamina = false,
 	UnlimitedOxygen = false,
+	AutoStruggle = false,
 	AutoWrite = false,
 	WriteWord = "money",
 	AutoWriteWorst = false,
@@ -634,6 +635,25 @@ local function autoWriteStep()
 	logOnce("write_word_" .. word, "auto write -> " .. word, "info")
 end
 
+local nextStruggleAt = 0
+local function autoStruggleStep()
+	local now = os.clock()
+	if now < nextStruggleAt then
+		return
+	end
+	nextStruggleAt = now + 0.2
+	local grabRemotes = ReplicatedStorage:FindFirstChild("GrabRemotes")
+	local struggle = grabRemotes and grabRemotes:FindFirstChild("Struggle")
+	if not (struggle and struggle:IsA("RemoteEvent")) then
+		logOnce("struggle_missing", "auto struggle: GrabRemotes.Struggle not found", "warn")
+		return
+	end
+	pcall(function()
+		struggle:FireServer()
+	end)
+	logOnce("struggle_ok", "auto struggle: struggling out of grabs", "info")
+end
+
 ---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
@@ -1032,6 +1052,16 @@ Farm:AddToggle({
 
 Survival:AddSection("Hazards", "Lucide:flame")
 Survival:AddToggle({
+	Text = "Auto Struggle",
+	Description = "Fires GrabRemotes.Struggle to break free from grabs",
+	Icon = "Lucide:hand",
+	Default = false,
+	Flag = "syi_auto_struggle",
+	Callback = function(value)
+		Settings.AutoStruggle = value
+	end,
+})
+Survival:AddToggle({
 	Text = "Hazard Warnings",
 	Description = "Logs incoming lava, tsunamis, tornados and fires",
 	Icon = "Lucide:alert-triangle",
@@ -1127,6 +1157,9 @@ task.spawn(function()
 		if Settings.UnlimitedOxygen then
 			pcall(unlimitedOxygenStep)
 		end
+		if Settings.AutoStruggle then
+			pcall(autoStruggleStep)
+		end
 		if Settings.AutoWrite then
 			pcall(autoWriteStep)
 		end
@@ -1176,6 +1209,7 @@ ctx:OnCleanup(function()
 	Settings.AutoUseItem, Settings.HazardWarn, Settings.AutoDodge = false, false, false
 	Settings.UnlimitedStamina, Settings.AutoWrite = false, false
 	Settings.UnlimitedOxygen = false
+	Settings.AutoStruggle = false
 	for instance, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

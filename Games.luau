@@ -26,7 +26,7 @@ Games.List = {
 	{ Key = "13DaysToEscape", Name = "13 Days to Escape", Icon = "Lucide:lock", PlaceId = 109877974698369, UniverseId = 10769941703 },
 	{ Key = "Battlepath", Name = "BATTLEPATH!", Icon = "Lucide:swords", PlaceId = 80742912025953, UniverseId = 7849103116 },
 	{ Key = "ScriptingSchool", Name = "Scripting School", Icon = "Lucide:code", PlaceId = 6557769953, UniverseId = 2463274810 },
-	{ Key = "Grace", Name = "GRACE", Icon = "Lucide:ghost", PlaceId = 138837502355157, UniverseId = 0 },
+	{ Key = "Grace", Name = "GRACE", Icon = "Lucide:ghost", PlaceId = 110333320616502, UniverseId = 6508759464 },
 }
 
 -- Stop functions the old standalone scripts left in getgenv(), called once before the hub starts.

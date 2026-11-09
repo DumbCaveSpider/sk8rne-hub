@@ -39,6 +39,14 @@ local Settings = {
 	InfiniteJump = false,
 	Godmode = false,
 	AutoPunch = false,
+	AutoKillAll = false,
+	KillRange = 60,
+	AutoDash = false,
+	DashRange = 10,
+	AutoSlash = false,
+	AutoPerkOffer = false,
+	NoCooldown = false,
+	HitAnyDirection = false,
 	AutoUppercut = false,
 	AutoMove = false,
 	MoveId = "Beam",
@@ -53,8 +61,13 @@ local Settings = {
 ---------------------------------------------------------------------
 
 local function remote(name, folderName)
-	local folder = ReplicatedStorage:FindFirstChild(folderName or "Remotes")
-	return folder and folder:FindFirstChild(name)
+	-- Match servers expose a Remotes folder; the lobby keeps remotes directly on ReplicatedStorage.
+	local folder = folderName and ReplicatedStorage:FindFirstChild(folderName)
+	if not folder then
+		folder = ReplicatedStorage:FindFirstChild("Remotes")
+	end
+	local found = folder and folder:FindFirstChild(name)
+	return found or ReplicatedStorage:FindFirstChild(name)
 end
 
 local function fireRemote(name, ...)
@@ -137,13 +150,13 @@ local function espStep()
 		return
 	end
 	local visible = {}
-	for _, model in ipairs(folder:GetDescendants()) do
+	for _, model in ipairs(folder:GetChildren()) do
 		if model:IsA("Model") and model ~= LocalPlayer.Character then
 			local humanoid = model:FindFirstChildOfClass("Humanoid")
 			local part = espPart(model)
 			if humanoid and humanoid.Health > 0 and part then
 				local bossName = model:GetAttribute("BossName")
-				local isBoss = bossName ~= nil
+				local isBoss = bossName ~= nil or model.Name == "BossNoob"
 				if (isBoss and Settings.EspBoss) or (not isBoss and Settings.EspNoob) then
 					local distance = (part.Position - myRoot.Position).Magnitude
 					if distance <= Settings.EspDistance then
@@ -214,6 +227,9 @@ end
 -- Combat
 ---------------------------------------------------------------------
 
+local nearestNoob
+local faceNearestNoob
+
 local PUNCHES = { "punch1", "punch2", "punch3" }
 local punchIndex = 0
 local nextPunchAt = 0
@@ -223,10 +239,167 @@ local function autoPunchStep()
 	if now < nextPunchAt then
 		return
 	end
-	nextPunchAt = now + 0.25
+	nextPunchAt = now + (Settings.NoCooldown and 0.05 or 0.25)
+	if Settings.HitAnyDirection then
+		faceNearestNoob()
+	end
 	punchIndex = punchIndex % #PUNCHES + 1
 	fireRemote("Attack", PUNCHES[punchIndex])
 	logOnce("punch_ok", "auto punch: sending punch combos", "info")
+end
+
+local function aliveNoobsInRange(range)
+	local myRoot = getRootPart()
+	local folder = noobsFolder()
+	if not myRoot or not folder then
+		return 0
+	end
+	local targets = 0
+	for _, model in ipairs(folder:GetChildren()) do
+		if model:IsA("Model") then
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 then
+				local part = espPart(model)
+				if part and (part.Position - myRoot.Position).Magnitude <= range then
+					targets = targets + 1
+				end
+			end
+		end
+	end
+	return targets
+end
+
+local nextKillAllAt = 0
+local function autoKillAllStep()
+	local now = os.clock()
+	if now < nextKillAllAt then
+		return
+	end
+	nextKillAllAt = now + (Settings.NoCooldown and 0.05 or 0.15)
+	if Settings.HitAnyDirection then
+		faceNearestNoob()
+	end
+	if aliveNoobsInRange(Settings.KillRange) == 0 then
+		return
+	end
+	punchIndex = punchIndex % #PUNCHES + 1
+	fireRemote("Attack", PUNCHES[punchIndex])
+	logOnce("killall_ok", "auto kill all: attacking every noob in range", "info")
+end
+
+local nextDashAt = 0
+nearestNoob = function()
+	local myRoot = getRootPart()
+	local folder = noobsFolder()
+	if not myRoot or not folder then
+		return nil
+	end
+	local nearest, nearestDist = nil, math.huge
+	for _, model in ipairs(folder:GetChildren()) do
+		if model:IsA("Model") then
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			local part = espPart(model)
+			if humanoid and humanoid.Health > 0 and part then
+				local distance = (part.Position - myRoot.Position).Magnitude
+				if distance < nearestDist then
+					nearest, nearestDist = part, distance
+				end
+			end
+		end
+	end
+	return nearest, nearestDist
+end
+
+faceNearestNoob = function()
+	local myRoot = getRootPart()
+	if not myRoot then
+		return false
+	end
+	local noob = nearestNoob()
+	if not noob then
+		return false
+	end
+	local target = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
+	if (target - myRoot.Position).Magnitude > 0.1 then
+		myRoot.CFrame = CFrame.lookAt(myRoot.Position, target)
+		return true
+	end
+	return false
+end
+
+local function autoDashStep()
+	local now = os.clock()
+	if now < nextDashAt then
+		return
+	end
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not myRoot or not humanoid then
+		return
+	end
+	local noob, distance = nearestNoob()
+	if not noob or distance > Settings.DashRange then
+		return
+	end
+	nextDashAt = now + 1
+	local away = myRoot.Position - noob.Position
+	if away.Magnitude > 0.1 then
+		humanoid:MoveTo(myRoot.Position + away.Unit * 25)
+	end
+	fireRemote("Attack", "dash")
+	logOnce("dash_ok", "auto dash: dodging an incoming noob", "info")
+end
+
+local SLASHES = { "slash1", "slash2", "slash3" }
+local slashIndex = 0
+local nextSlashAt = 0
+local function autoSlashStep()
+	local now = os.clock()
+	if now < nextSlashAt then
+		return
+	end
+	nextSlashAt = now + (Settings.NoCooldown and 0.05 or 0.3)
+	if Settings.HitAnyDirection then
+		faceNearestNoob()
+	end
+	slashIndex = slashIndex % #SLASHES + 1
+	fireRemote("Attack", SLASHES[slashIndex])
+	logOnce("slash_ok", "auto slash: cycling slash1/2/3", "info")
+end
+
+local function firePerkOffer(perks)
+	local perkRemote = remote("Perk")
+	if not (perkRemote and perkRemote:IsA("RemoteEvent")) then
+		logOnce("perk_missing", "Remotes.Perk not found", "warn")
+		return false
+	end
+	local payload = perks or { "Vampire", "Shield", "Healing" }
+	local fired = false
+	if type(firesignal) == "function" then
+		local ok = pcall(firesignal, perkRemote.OnClientEvent, payload)
+		fired = fired or ok
+	end
+	if type(getconnections) == "function" then
+		local ok, connections = pcall(getconnections, perkRemote.OnClientEvent)
+		if ok and type(connections) == "table" then
+			for _, connection in ipairs(connections) do
+				pcall(connection.Fire, connection, payload)
+				fired = true
+			end
+		end
+	end
+	logOnce("perk_offer_ok", "perk offer: fired the Perk signal", "info")
+	return fired
+end
+
+local nextPerkOfferAt = 0
+local function autoPerkOfferStep()
+	local now = os.clock()
+	if now < nextPerkOfferAt then
+		return
+	end
+	nextPerkOfferAt = now + 2
+	firePerkOffer()
 end
 
 local nextUppercutAt = 0
@@ -373,6 +546,30 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
+	Text = "Auto Dash (Dodge)",
+	Description = "Dashes away when a noob gets into melee range",
+	Icon = "Lucide:wind",
+	Default = false,
+	Flag = "ni_auto_dash",
+	Callback = function(value)
+		Settings.AutoDash = value
+	end,
+})
+Player:AddSlider({
+	Text = "Dash Trigger Range",
+	Description = "How close a noob has to get before dashing",
+	Icon = "Lucide:radar",
+	Min = 4,
+	Max = 40,
+	Default = 10,
+	Increment = 1,
+	Suffix = " studs",
+	Flag = "ni_dash_range",
+	Callback = function(value)
+		Settings.DashRange = value
+	end,
+})
+Player:AddToggle({
 	Text = "Godmode",
 	Description = "Keeps health and shield topped up",
 	Icon = "Lucide:shield",
@@ -383,6 +580,26 @@ Player:AddToggle({
 	end,
 })
 
+Combat:AddToggle({
+	Text = "No Cooldown",
+	Description = "Fires attacks every 0.05s instead of the normal rate",
+	Icon = "Lucide:timer-off",
+	Default = false,
+	Flag = "ni_no_cd",
+	Callback = function(value)
+		Settings.NoCooldown = value
+	end,
+})
+Combat:AddToggle({
+	Text = "Hit Any Direction",
+	Description = "Snaps to face the nearest noob before every attack",
+	Icon = "Lucide:compass",
+	Default = false,
+	Flag = "ni_any_dir",
+	Callback = function(value)
+		Settings.HitAnyDirection = value
+	end,
+})
 Combat:AddSection("Attack", "Lucide:swords")
 Combat:AddToggle({
 	Text = "Auto Punch",
@@ -395,6 +612,40 @@ Combat:AddToggle({
 	end,
 })
 Combat:AddToggle({
+	Text = "Auto Kill All",
+	Description = "Attacks continuously whenever any noob is in range",
+	Icon = "Lucide:skull",
+	Default = false,
+	Flag = "ni_auto_killall",
+	Callback = function(value)
+		Settings.AutoKillAll = value
+	end,
+})
+Combat:AddSlider({
+	Text = "Kill Range",
+	Description = "How far auto kill all looks for noobs",
+	Icon = "Lucide:radar",
+	Min = 10,
+	Max = 300,
+	Default = 60,
+	Increment = 10,
+	Suffix = " studs",
+	Flag = "ni_kill_range",
+	Callback = function(value)
+		Settings.KillRange = value
+	end,
+})
+Combat:AddToggle({
+	Text = "Auto Slash",
+	Description = "Cycles slash1 / slash2 / slash3 through the attack remote",
+	Icon = "Lucide:swords",
+	Default = false,
+	Flag = "ni_auto_slash",
+	Callback = function(value)
+		Settings.AutoSlash = value
+	end,
+})
+Combat:AddToggle({
 	Text = "Auto Uppercut",
 	Description = "Fires the uppercut every 3.2s",
 	Icon = "Lucide:arrow-up",
@@ -404,6 +655,26 @@ Combat:AddToggle({
 		Settings.AutoUppercut = value
 	end,
 })
+Combat:AddSection("Perks", "Lucide:sparkles")
+Combat:AddButton({
+	Text = "Force Perk Offer",
+	Description = "Fires Remotes.Perk.OnClientEvent with Vampire / Shield / Healing",
+	Icon = "Lucide:gift",
+	Callback = function()
+		firePerkOffer({ "Vampire", "Shield", "Healing" })
+	end,
+})
+Combat:AddToggle({
+	Text = "Auto Perk Offer",
+	Description = "Fires the perk offer every 2s",
+	Icon = "Lucide:repeat",
+	Default = false,
+	Flag = "ni_auto_perk",
+	Callback = function(value)
+		Settings.AutoPerkOffer = value
+	end,
+})
+
 Combat:AddSection("Moves", "Lucide:sparkles")
 Combat:AddToggle({
 	Text = "Auto Move",
@@ -551,6 +822,18 @@ task.spawn(function()
 		if Settings.AutoPunch then
 			pcall(autoPunchStep)
 		end
+		if Settings.AutoKillAll then
+			pcall(autoKillAllStep)
+		end
+		if Settings.AutoDash then
+			pcall(autoDashStep)
+		end
+		if Settings.AutoSlash then
+			pcall(autoSlashStep)
+		end
+		if Settings.AutoPerkOffer then
+			pcall(autoPerkOfferStep)
+		end
 		if Settings.AutoUppercut then
 			pcall(autoUppercutStep)
 		end
@@ -585,6 +868,12 @@ ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.InfiniteJump, Settings.Godmode = false, false
 	Settings.AutoPunch, Settings.AutoUppercut, Settings.AutoMove = false, false, false
+	Settings.AutoKillAll = false
+	Settings.AutoDash = false
+	Settings.AutoSlash = false
+	Settings.AutoPerkOffer = false
+	Settings.NoCooldown = false
+	Settings.HitAnyDirection = false
 	Settings.AutoRevive, Settings.EspNoob, Settings.EspBoss = false, false, false
 	for model, entry in pairs(espEntries) do
 		entry.Gui:Destroy()

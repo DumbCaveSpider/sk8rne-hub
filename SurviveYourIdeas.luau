@@ -216,8 +216,9 @@ local function fireRemote(name, ...)
 		logOnce("remote_missing_" .. name, "remote not found: " .. name, "warn")
 		return false
 	end
+	local args = table.pack(...)
 	pcall(function()
-		remote:FireServer(...)
+		remote:FireServer(table.unpack(args, 1, args.n))
 	end)
 	return true
 end
@@ -234,8 +235,9 @@ local function itemRequestInvoke(...)
 		logOnce("item_request_missing", "Items.Remotes.Request not found", "warn")
 		return nil
 	end
+	local args = table.pack(...)
 	local ok, result = pcall(function()
-		return request:InvokeServer(...)
+		return request:InvokeServer(table.unpack(args, 1, args.n))
 	end)
 	if not ok then
 		logOnce("item_request_failed", "item request failed: " .. tostring(result), "warn")

@@ -340,11 +340,22 @@ faceNearestNoob = function()
 		return false
 	end
 	local target = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
-	if (target - myRoot.Position).Magnitude > 0.1 then
-		myRoot.CFrame = CFrame.lookAt(myRoot.Position, target)
-		return true
+	local direction = target - myRoot.Position
+	if direction.Magnitude < 0.1 then
+		return false
 	end
-	return false
+	local look = myRoot.CFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	if flatLook.Magnitude < 0.01 then
+		flatLook = Vector3.new(0, 0, -1)
+	end
+	-- Snapping the CFrame on every attack makes the character look jittery,
+	-- so only correct a real misalignment (more than ~10 degrees).
+	if flatLook.Unit:Dot(direction.Unit) > 0.985 then
+		return false
+	end
+	myRoot.CFrame = CFrame.lookAt(myRoot.Position, target)
+	return true
 end
 
 local chaseSpeedApplied = false
@@ -395,6 +406,11 @@ local function autoChaseStep()
 end
 
 local function autoDashStep()
+	-- Auto Chase already moves the character toward the noob; dashing away at the same
+	-- time makes the two fight each other and stutter, so the chase wins.
+	if Settings.AutoChase then
+		return
+	end
 	local now = os.clock()
 	if now < nextDashAt then
 		return

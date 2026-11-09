@@ -183,6 +183,7 @@ local Settings = {
 	WeaponPick = "Fists",
 	EspLoot = false,
 	EspPlayers = false,
+	LavaEscape = false,
 	AutoFarmLoot = false,
 	IdleNoCast = false,
 	AutoRevivePlayers = false,
@@ -504,6 +505,58 @@ local function autoFarmLootStep()
 	-- Loot is collected by touch, so walking onto it is enough.
 	humanoid:MoveTo(loot.Position)
 	logOnce("loot_ok", "auto farm: walking onto loot to collect it", "info")
+end
+
+local lavaCache = {}
+local lastLavaScanAt = 0
+local lastSafePosition = nil
+
+local function scanLava()
+	local now = os.clock()
+	if now - lastLavaScanAt < 5 then
+		return
+	end
+	lastLavaScanAt = now
+	local parts = {}
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant.Name == "Lava" and descendant:IsA("BasePart") then
+			parts[#parts + 1] = descendant
+		end
+	end
+	lavaCache = parts
+end
+
+local function lavaStep()
+	if not Settings.LavaEscape then
+		return
+	end
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not myRoot or not humanoid or humanoid.Health <= 0 then
+		return
+	end
+	scanLava()
+	for _, lava in ipairs(lavaCache) do
+		if lava.Parent then
+			-- Cheap containment test: is the root inside the lava block (plus a small margin)?
+			local relative = lava.CFrame:PointToObjectSpace(myRoot.Position)
+			local half = lava.Size * 0.5
+			if
+				math.abs(relative.X) <= half.X + 2
+				and math.abs(relative.Y) <= half.Y + 3
+				and math.abs(relative.Z) <= half.Z + 2
+			then
+				local target = lastSafePosition or (lava.Position + Vector3.new(0, 14, 0))
+				pcall(function()
+					myRoot.CFrame = CFrame.new(target + Vector3.new(0, 4, 0))
+				end)
+				ctx:Log("[NI] lava: teleported back to a safe spot", "warn")
+				return
+			end
+		end
+	end
+	-- Not touching lava: keep remembering where standing is safe.
+	lastSafePosition = myRoot.Position
 end
 
 ---------------------------------------------------------------------
@@ -1201,6 +1254,16 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
+	Text = "Lava Escape",
+	Description = "Teleports you off workspace.Lava back to the last safe spot",
+	Icon = "Lucide:flame",
+	Default = false,
+	Flag = "ni_lava_escape",
+	Callback = function(value)
+		Settings.LavaEscape = value
+	end,
+})
+Player:AddToggle({
 	Text = "Low HP Retreat",
 	Description = "Dashes away from noobs and heals a bit when health is low",
 	Icon = "Lucide:heart-pulse",
@@ -1691,6 +1754,9 @@ task.spawn(function()
 		if Settings.LowHpRetreat then
 			pcall(lowHpStep)
 		end
+		if Settings.LavaEscape then
+			pcall(lavaStep)
+		end
 		if Settings.InfiniteJump then
 			local humanoid = getHumanoid()
 			if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
@@ -1781,6 +1847,7 @@ ctx:OnCleanup(function()
 	Settings.AutoRevivePlayers = false
 	Settings.EspLoot, Settings.AutoFarmLoot = false, false
 	Settings.EspPlayers = false
+	Settings.LavaEscape = false
 	for model, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

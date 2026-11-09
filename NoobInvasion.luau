@@ -4,6 +4,7 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PathfindingService = game:GetService("PathfindingService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -38,17 +39,18 @@ local Settings = {
 	JumpPower = 100,
 	InfiniteJump = false,
 	Godmode = false,
-	AutoPunch = false,
+	AutoAttack = false,
 	AutoKillAll = false,
 	KillRange = 60,
 	AutoDash = false,
 	DashRange = 10,
-	AutoSlash = false,
 	AutoPerkOffer = false,
+	PerkPickIndex = 1,
 	NoCooldown = false,
 	HitAnyDirection = false,
 	AutoChase = false,
 	ChaseStop = 8,
+	ChaseSpeed = 30,
 	AutoSuper = false,
 	AutoAbilityPick = false,
 	AbilityPickIndex = 1,
@@ -235,22 +237,34 @@ end
 local nearestNoob
 local faceNearestNoob
 
-local PUNCHES = { "punch1", "punch2", "punch3" }
-local punchIndex = 0
-local nextPunchAt = 0
+-- Every numbered attack chain in the game, picked by the equipped weapon.
+local ATTACK_CHAINS = {
+	Fists = { "punch1", "punch2", "punch3" },
+	Sword = { "slash1", "slash2", "slash3" },
+	Chains = { "slash1", "slash2", "slash3" },
+	Scythe = { "reap1", "reap2", "reap3" },
+	Hammer = { "hammer1", "hammer2" },
+}
+local attackIndex = 0
+local nextAttackAt = 0
 
-local function autoPunchStep()
+local function attackChain()
+	return ATTACK_CHAINS[LocalPlayer:GetAttribute("Weapon")] or ATTACK_CHAINS.Fists
+end
+
+local function autoAttackStep()
 	local now = os.clock()
-	if now < nextPunchAt then
+	if now < nextAttackAt then
 		return
 	end
-	nextPunchAt = now + (Settings.NoCooldown and 0.05 or 0.25)
+	nextAttackAt = now + (Settings.NoCooldown and 0.05 or 0.25)
 	if Settings.HitAnyDirection then
 		faceNearestNoob()
 	end
-	punchIndex = punchIndex % #PUNCHES + 1
-	fireRemote("Attack", PUNCHES[punchIndex])
-	logOnce("punch_ok", "auto punch: sending punch combos", "info")
+	local chain = attackChain()
+	attackIndex = attackIndex % #chain + 1
+	fireRemote("Attack", chain[attackIndex])
+	logOnce("attack_ok", "auto attack: cycling the equipped weapon's chain", "info")
 end
 
 local function aliveNoobsInRange(range)
@@ -287,8 +301,9 @@ local function autoKillAllStep()
 	if aliveNoobsInRange(Settings.KillRange) == 0 then
 		return
 	end
-	punchIndex = punchIndex % #PUNCHES + 1
-	fireRemote("Attack", PUNCHES[punchIndex])
+	local chain = attackChain()
+	attackIndex = attackIndex % #chain + 1
+	fireRemote("Attack", chain[attackIndex])
 	logOnce("killall_ok", "auto kill all: attacking every noob in range", "info")
 end
 
@@ -332,26 +347,95 @@ faceNearestNoob = function()
 	return false
 end
 
+local chaseTarget = nil
+local chasePath = nil
+local chaseWaypoint = 1
+local lastRepathAt = 0
+local chaseSpeedApplied = false
+
+local function clearChasePath()
+	chasePath = nil
+	chaseWaypoint = 1
+	chaseTarget = nil
+	if chaseSpeedApplied then
+		chaseSpeedApplied = false
+		local humanoid = getHumanoid()
+		if humanoid then
+			humanoid.WalkSpeed = Settings.SpeedOn and Settings.Speed or 16
+		end
+	end
+end
+
+local function buildChasePath(noob)
+	local myRoot = getRootPart()
+	if not myRoot or not noob then
+		return false
+	end
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 3,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		AgentJumpHeight = 7,
+		AgentMaxSlope = 45,
+	})
+	local ok = pcall(function()
+		path:ComputeAsync(myRoot.Position, noob.Position)
+	end)
+	if not ok or path.Status ~= Enum.PathStatus.Success then
+		return false
+	end
+	chasePath = path
+	chaseWaypoint = 2
+	return true
+end
+
 local nextChaseAt = 0
 local function autoChaseStep()
 	local now = os.clock()
 	if now < nextChaseAt then
 		return
 	end
-	nextChaseAt = now + 0.3
+	nextChaseAt = now + 0.2
 	local humanoid = getHumanoid()
 	local myRoot = getRootPart()
 	if not humanoid or not myRoot then
+		clearChasePath()
 		return
 	end
 	local noob, distance = nearestNoob()
-	if not noob or not distance then
+	if not noob or not distance or distance <= Settings.ChaseStop then
+		clearChasePath()
 		return
 	end
-	if distance > Settings.ChaseStop then
-		humanoid:MoveTo(noob.Position)
-		logOnce("chase_ok", "auto chase: walking to the nearest noob", "info")
+	if humanoid.WalkSpeed < Settings.ChaseSpeed then
+		humanoid.WalkSpeed = Settings.ChaseSpeed
+		chaseSpeedApplied = true
 	end
+	local targetMoved = chaseTarget and (noob.Position - chaseTarget.Position).Magnitude > 4
+	if not chasePath or chaseTarget ~= noob or targetMoved or now - lastRepathAt > 1 then
+		chaseTarget = noob
+		lastRepathAt = now
+		if not buildChasePath(noob) then
+			humanoid:MoveTo(noob.Position)
+			return
+		end
+	end
+	local waypoints = chasePath and chasePath:GetWaypoints()
+	if not waypoints or chaseWaypoint > #waypoints then
+		humanoid:MoveTo(noob.Position)
+		chaseTarget = nil
+		lastRepathAt = 0
+		return
+	end
+	local waypoint = waypoints[chaseWaypoint]
+	if waypoint.Action == Enum.PathWaypointAction.Jump then
+		humanoid.Jump = true
+	end
+	humanoid:MoveTo(waypoint.Position)
+	if (myRoot.Position - waypoint.Position).Magnitude < 3 then
+		chaseWaypoint = chaseWaypoint + 1
+	end
+	logOnce("chase_ok", "auto chase: pathfinding + sprinting to the nearest noob", "info")
 end
 
 local function autoDashStep()
@@ -377,57 +461,31 @@ local function autoDashStep()
 	logOnce("dash_ok", "auto dash: dodging an incoming noob", "info")
 end
 
-local SLASHES = { "slash1", "slash2", "slash3" }
-local slashIndex = 0
-local nextSlashAt = 0
-local function autoSlashStep()
-	local now = os.clock()
-	if now < nextSlashAt then
-		return
-	end
-	nextSlashAt = now + (Settings.NoCooldown and 0.05 or 0.3)
-	if Settings.HitAnyDirection then
-		faceNearestNoob()
-	end
-	slashIndex = slashIndex % #SLASHES + 1
-	fireRemote("Attack", SLASHES[slashIndex])
-	logOnce("slash_ok", "auto slash: cycling slash1/2/3", "info")
-end
-
-local function firePerkOffer(perks)
+-- Auto-pick perks only when the SERVER sends an offer. Nothing is fired client-side.
+task.spawn(function()
 	local perkRemote = remote("Perk")
 	if not (perkRemote and perkRemote:IsA("RemoteEvent")) then
 		logOnce("perk_missing", "Remotes.Perk not found", "warn")
-		return false
-	end
-	local payload = perks or { "Vampire", "Shield", "Healing" }
-	local fired = false
-	if type(firesignal) == "function" then
-		local ok = pcall(firesignal, perkRemote.OnClientEvent, payload)
-		fired = fired or ok
-	end
-	if type(getconnections) == "function" then
-		local ok, connections = pcall(getconnections, perkRemote.OnClientEvent)
-		if ok and type(connections) == "table" then
-			for _, connection in ipairs(connections) do
-				pcall(connection.Fire, connection, payload)
-				fired = true
-			end
-		end
-	end
-	logOnce("perk_offer_ok", "perk offer: fired the Perk signal", "info")
-	return fired
-end
-
-local nextPerkOfferAt = 0
-local function autoPerkOfferStep()
-	local now = os.clock()
-	if now < nextPerkOfferAt then
 		return
 	end
-	nextPerkOfferAt = now + 2
-	firePerkOffer()
-end
+	ctx:Connect(perkRemote.OnClientEvent, function(offer)
+		logOnce("perk_offer_seen", "perk offer received from the server", "info")
+		if not Settings.AutoPerkOffer then
+			return
+		end
+		local pick = Settings.PerkPickIndex or 1
+		local choice
+		if type(offer) == "table" then
+			choice = offer[pick] or offer[1]
+		end
+		choice = choice or pick
+		pcall(function()
+			perkRemote:FireServer(choice)
+		end)
+		ctx:Log("[NI] auto perk: picked " .. tostring(choice), "info")
+	end)
+	logOnce("perk_hooked", "auto perk: watching for server perk offers", "info")
+end)
 
 local nextSuperAt = 0
 local function autoSuperStep()
@@ -651,13 +709,13 @@ Combat:AddToggle({
 })
 Combat:AddSection("Attack", "Lucide:swords")
 Combat:AddToggle({
-	Text = "Auto Punch",
-	Description = "Cycles punch1 / punch2 / punch3 through the attack remote",
+	Text = "Auto Attack",
+	Description = "Cycles the equipped weapon's chain (punch / slash / reap / hammer)",
 	Icon = "Lucide:swords",
 	Default = false,
-	Flag = "ni_auto_punch",
+	Flag = "ni_auto_attack",
 	Callback = function(value)
-		Settings.AutoPunch = value
+		Settings.AutoAttack = value
 	end,
 })
 Combat:AddToggle({
@@ -685,16 +743,6 @@ Combat:AddSlider({
 	end,
 })
 Combat:AddToggle({
-	Text = "Auto Slash",
-	Description = "Cycles slash1 / slash2 / slash3 through the attack remote",
-	Icon = "Lucide:swords",
-	Default = false,
-	Flag = "ni_auto_slash",
-	Callback = function(value)
-		Settings.AutoSlash = value
-	end,
-})
-Combat:AddToggle({
 	Text = "Auto Super",
 	Description = "Fires the super attack every 4s",
 	Icon = "Lucide:zap",
@@ -715,22 +763,27 @@ Combat:AddToggle({
 	end,
 })
 Combat:AddSection("Perks", "Lucide:sparkles")
-Combat:AddButton({
-	Text = "Force Perk Offer",
-	Description = "Fires Remotes.Perk.OnClientEvent with Vampire / Shield / Healing",
-	Icon = "Lucide:gift",
-	Callback = function()
-		firePerkOffer({ "Vampire", "Shield", "Healing" })
-	end,
-})
 Combat:AddToggle({
-	Text = "Auto Perk Offer",
-	Description = "Fires the perk offer every 2s",
-	Icon = "Lucide:repeat",
+	Text = "Auto Pick Perk",
+	Description = "Picks a perk only when the server offers one",
+	Icon = "Lucide:gift",
 	Default = false,
 	Flag = "ni_auto_perk",
 	Callback = function(value)
 		Settings.AutoPerkOffer = value
+	end,
+})
+Combat:AddSlider({
+	Text = "Perk Pick Index",
+	Description = "Which offered perk to choose (1-3)",
+	Icon = "Lucide:list-ordered",
+	Min = 1,
+	Max = 3,
+	Default = 1,
+	Increment = 1,
+	Flag = "ni_perk_index",
+	Callback = function(value)
+		Settings.PerkPickIndex = value
 	end,
 })
 
@@ -809,6 +862,20 @@ Farm:AddSlider({
 	Flag = "ni_chase_stop",
 	Callback = function(value)
 		Settings.ChaseStop = value
+	end,
+})
+Farm:AddSlider({
+	Text = "Chase Speed",
+	Description = "Sprint speed used while chasing",
+	Icon = "Lucide:rabbit",
+	Min = 16,
+	Max = 120,
+	Default = 30,
+	Increment = 2,
+	Suffix = " studs",
+	Flag = "ni_chase_speed",
+	Callback = function(value)
+		Settings.ChaseSpeed = value
 	end,
 })
 Farm:AddSection("Survival", "Lucide:heart")
@@ -927,8 +994,8 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
-		if Settings.AutoPunch then
-			pcall(autoPunchStep)
+		if Settings.AutoAttack then
+			pcall(autoAttackStep)
 		end
 		if Settings.AutoKillAll then
 			pcall(autoKillAllStep)
@@ -944,12 +1011,6 @@ task.spawn(function()
 		end
 		if Settings.AutoAbilityPick then
 			pcall(autoAbilityPickStep)
-		end
-		if Settings.AutoSlash then
-			pcall(autoSlashStep)
-		end
-		if Settings.AutoPerkOffer then
-			pcall(autoPerkOfferStep)
 		end
 		if Settings.AutoUppercut then
 			pcall(autoUppercutStep)
@@ -984,10 +1045,9 @@ end)
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.InfiniteJump, Settings.Godmode = false, false
-	Settings.AutoPunch, Settings.AutoUppercut, Settings.AutoMove = false, false, false
+	Settings.AutoAttack, Settings.AutoUppercut, Settings.AutoMove = false, false, false
 	Settings.AutoKillAll = false
 	Settings.AutoDash = false
-	Settings.AutoSlash = false
 	Settings.AutoPerkOffer = false
 	Settings.NoCooldown = false
 	Settings.HitAnyDirection = false

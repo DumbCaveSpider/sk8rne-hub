@@ -421,11 +421,6 @@ local function autoChaseStep()
 end
 
 local function autoDashStep()
-	-- Auto Chase already moves the character toward the noob; dashing away at the same
-	-- time makes the two fight each other and stutter, so the chase wins.
-	if Settings.AutoChase then
-		return
-	end
 	local now = os.clock()
 	if now < nextDashAt then
 		return
@@ -551,8 +546,14 @@ local function autoAbilityStep()
 	end
 	local id = equippedMove()
 	nextAbilityCastAt = now + moveCooldown(id)
-	fireRemote("Attack", id)
-	logOnce("ability_cast_ok", "auto ability: casting the equipped move", "info")
+	local myRoot = getRootPart()
+	local noob = nearestNoob()
+	local aim = (noob and noob.Position)
+		or (myRoot and (myRoot.Position + myRoot.CFrame.LookVector * 12))
+		or Vector3.zero
+	-- Special attack form: "special", <moveId>, nil, <aim position>
+	fireRemote("Attack", "special", id, nil, aim)
+	logOnce("ability_cast_ok", "auto ability: casting the equipped move's special", "info")
 end
 
 local nextDebugAt = 0
@@ -931,20 +932,6 @@ Farm:AddSlider({
 	Flag = "ni_chase_stop",
 	Callback = function(value)
 		Settings.ChaseStop = value
-	end,
-})
-Farm:AddSlider({
-	Text = "Chase Speed",
-	Description = "Sprint speed used while chasing",
-	Icon = "Lucide:rabbit",
-	Min = 16,
-	Max = 120,
-	Default = 30,
-	Increment = 2,
-	Suffix = " studs",
-	Flag = "ni_chase_speed",
-	Callback = function(value)
-		Settings.ChaseSpeed = value
 	end,
 })
 Farm:AddSection("Survival", "Lucide:heart")

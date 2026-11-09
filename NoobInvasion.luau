@@ -519,16 +519,32 @@ local function autoSuperStep()
 	logOnce("super_ok", "auto super: firing the super attack", "info")
 end
 
-local nextAbilityAt = 0
-local function autoAbilityPickStep()
-	local now = os.clock()
-	if now < nextAbilityAt then
+-- Auto-pick ability offers only when the SERVER sends one (a string id, e.g. "Shadow").
+task.spawn(function()
+	local offerRemote = remote("AbilityOffer")
+	if not (offerRemote and offerRemote:IsA("RemoteEvent")) then
+		logOnce("ability_offer_missing", "Remotes.AbilityOffer not found", "warn")
 		return
 	end
-	nextAbilityAt = now + 2
-	fireRemote("AbilityOffer", Settings.AbilityPickIndex)
-	logOnce("ability_ok", "auto ability: picking option " .. tostring(Settings.AbilityPickIndex), "info")
-end
+	ctx:Connect(offerRemote.OnClientEvent, function(offer)
+		logOnce("ability_offer_seen", "ability offer received from the server", "info")
+		if not Settings.AutoAbilityPick then
+			return
+		end
+		local id = offer
+		if type(offer) == "table" then
+			id = offer[Settings.AbilityPickIndex] or offer[1]
+		end
+		if id == nil then
+			id = Settings.AbilityPickIndex
+		end
+		pcall(function()
+			offerRemote:FireServer(id)
+		end)
+		ctx:Log("[NI] auto ability pick: picked " .. tostring(id), "info")
+	end)
+	logOnce("ability_offer_hooked", "auto ability pick: watching for server offers", "info")
+end)
 
 local MovesModule = nil
 do
@@ -866,7 +882,7 @@ Combat:AddSlider({
 
 Combat:AddToggle({
 	Text = "Auto Pick Ability",
-	Description = "Picks the selected ability offer every 2s",
+	Description = "Accepts ability offers only when the server sends one",
 	Icon = "Lucide:sparkles",
 	Default = false,
 	Flag = "ni_auto_ability",
@@ -1096,9 +1112,6 @@ task.spawn(function()
 		end
 		if Settings.AutoSuper then
 			pcall(autoSuperStep)
-		end
-		if Settings.AutoAbilityPick then
-			pcall(autoAbilityPickStep)
 		end
 		if Settings.AutoAbility then
 			pcall(autoAbilityStep)

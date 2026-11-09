@@ -614,7 +614,53 @@ end
 
 -- Mastery words from ReplicatedStorage.Mastery.MasteryConfig.
 local MASTERY_WORDS = { "tornado", "tsunami", "nuke", "black_hole", "monster", "dinosaur", "gojo", "hero", "earthquake", "kill" }
+local MASTERY_CATEGORY = {
+	tornado = "disasters",
+	tsunami = "disasters",
+	nuke = "weapons",
+	black_hole = "disasters",
+	monster = "monsters",
+	dinosaur = "animals",
+	gojo = "memes",
+	hero = "memes",
+	earthquake = "disasters",
+	kill = "memes",
+}
 local masteryIndex = 0
+
+local function fireDiaryPush(key, category, shown, times, isNew, rewardReady)
+	local diary = ReplicatedStorage:FindFirstChild("Diary")
+	local remotes = diary and diary:FindFirstChild("Remotes")
+	local push = remotes and remotes:FindFirstChild("Push")
+	if not (push and push:IsA("RemoteEvent")) then
+		logOnce("diarypush_missing", "Diary.Remotes.Push not found", "warn")
+		return false
+	end
+	local payload = {
+		key = key,
+		category = category,
+		shown = shown or key,
+		times = times or 2,
+		isNew = isNew or false,
+		rewardReady = rewardReady or false,
+	}
+	local fired = false
+	if type(firesignal) == "function" then
+		local ok = pcall(firesignal, push.OnClientEvent, "word", payload)
+		fired = fired or ok
+	end
+	if type(getconnections) == "function" then
+		local ok, connections = pcall(getconnections, push.OnClientEvent)
+		if ok and type(connections) == "table" then
+			for _, connection in ipairs(connections) do
+				pcall(connection.Fire, connection, "word", payload)
+				fired = true
+			end
+		end
+	end
+	logOnce("diarypush_" .. key, "diary push -> " .. key, "info")
+	return fired
+end
 
 local nextWriteAt = 0
 local function autoWriteStep()
@@ -644,6 +690,9 @@ local function autoWriteStep()
 		remote:FireServer(word)
 	end)
 	logOnce("write_word_" .. word, "auto write -> " .. word, "info")
+	if Settings.AutoMastery then
+		fireDiaryPush(word, MASTERY_CATEGORY[word] or "disasters", word, 2, false, true)
+	end
 end
 
 local nextStruggleAt = 0
@@ -1114,6 +1163,17 @@ Words:AddParagraph({
 	Text = "tornado, tsunami, nuke, black_hole, monster, dinosaur, gojo, hero, earthquake, kill",
 })
 
+Words:AddButton({
+	Text = "Force All Mastery Pushes",
+	Description = "Fires the diary push for every mastery word",
+	Icon = "Lucide:book-open",
+	Callback = function()
+		for _, word in ipairs(MASTERY_WORDS) do
+			fireDiaryPush(word, MASTERY_CATEGORY[word] or "disasters", word, 2, false, true)
+		end
+		ctx:Log("[SYI] mastery pushes fired for all 10 words", "info")
+	end,
+})
 Words:AddButton({
 	Text = "Force Writer Prompt",
 	Description = "Fires WriterRemotes.WriterPrompt locally (19, 30, 1)",

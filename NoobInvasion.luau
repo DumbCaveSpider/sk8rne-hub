@@ -1317,19 +1317,35 @@ local function selectWeapon(weaponName)
 end
 
 Player:AddSection("Weapon", "Lucide:swords")
--- The game only accepts a weapon pick while its WeaponPick screen is open (before the
--- match starts), so keep watching for that moment and apply the saved choice then.
+-- The game shows its WeaponPick select GUI before a match. Fire ReplicatedStorage.Weapon
+-- the moment that GUI appears, and keep re-sending while it stays open until it takes.
+local pickScreenOpen = false
+local lastPickFireAt = 0
 task.spawn(function()
 	while ctx:Alive() do
-		if Settings.WeaponPick and Settings.WeaponPick ~= "" then
-			local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-			local pickScreen = playerGui and playerGui:FindFirstChild("WeaponPick")
-			if pickScreen and pickScreen.Enabled and LocalPlayer:GetAttribute("Weapon") ~= Settings.WeaponPick then
-				selectWeapon(Settings.WeaponPick)
-				task.wait(2)
+		local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+		local pickScreen = playerGui and playerGui:FindFirstChild("WeaponPick", true)
+		local visible = false
+		if pickScreen then
+			if pickScreen:IsA("ScreenGui") then
+				visible = pickScreen.Enabled
+			elseif pickScreen:IsA("GuiObject") then
+				visible = pickScreen.Visible
 			end
 		end
-		task.wait(0.5)
+		if visible and not pickScreenOpen then
+			pickScreenOpen = true
+			-- GUI just opened: send the weapon choice straight away.
+			selectWeapon(Settings.WeaponPick)
+			lastPickFireAt = os.clock()
+		elseif not visible then
+			pickScreenOpen = false
+		elseif os.clock() - lastPickFireAt > 1.5 then
+			-- GUI still open and the weapon has not applied: keep re-sending.
+			selectWeapon(Settings.WeaponPick)
+			lastPickFireAt = os.clock()
+		end
+		task.wait(0.3)
 	end
 end)
 

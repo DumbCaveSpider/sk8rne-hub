@@ -3,6 +3,7 @@ local ctx = ...
 local task = ctx.task
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 local function getRootPart()
@@ -24,6 +25,9 @@ local Settings = {
 	DoorWaypoint = false,
 	EventNotifier = false,
 	EspDistance = 500,
+	NoParryCooldown = false,
+	AutoStartRound = false,
+	StopWave = 0,
 }
 
 -- What each entity actually does, shown in the event panel.
@@ -340,6 +344,102 @@ local function eventStep()
 end
 
 ---------------------------------------------------------------------
+-- REPRIEVE (CONFESSION mode)
+---------------------------------------------------------------------
+
+-- GraceCharacter.ClientShared carries the parry timestamp the cooldown is measured from.
+local ClientShared = nil
+task.spawn(function()
+	local graceCharacter = ReplicatedStorage:WaitForChild("GraceCharacter", 10)
+	local module = graceCharacter and graceCharacter:WaitForChild("ClientShared", 10)
+	if module then
+		local ok, result = pcall(require, module)
+		if ok then
+			ClientShared = result
+		end
+	end
+end)
+
+local function removeParryCooldown()
+	if ClientShared then
+		-- The parry gate is (now - LastParry) < recharge, so pinning it to zero removes it.
+		ClientShared.LastParry = 0
+	end
+end
+
+local function matchesStart(text)
+	return text:find("start") or text:find("next") or text:find("round") or text:find("wave") or text:find("begin")
+		or text:find("pray") or text:find("confess")
+end
+
+local function findStartPrompt()
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") then
+			local text = (descendant.Name .. " " .. (descendant.ActionText or "") .. " " .. (descendant.ObjectText or "")):lower()
+			if matchesStart(text) then
+				return descendant
+			end
+		end
+	end
+	return nil
+end
+
+local function findStartRemote()
+	for _, descendant in ipairs(ReplicatedStorage:GetDescendants()) do
+		if descendant:IsA("RemoteEvent") or descendant:IsA("RemoteFunction") then
+			local name = descendant.Name:lower()
+			if name:find("round") or name:find("wave") or name:find("confess") or name:find("reprieve") then
+				return descendant
+			end
+		end
+	end
+	return nil
+end
+
+local startTrigger = nil
+local startedRounds = 0
+local nextStartAt = 0
+
+local function resolveStartTrigger()
+	if startTrigger and startTrigger.Parent then
+		return startTrigger
+	end
+	startTrigger = findStartPrompt() or findStartRemote()
+	return startTrigger
+end
+
+local function startNextRound()
+	local now = os.clock()
+	if now < nextStartAt then
+		return
+	end
+	nextStartAt = now + 1.5
+	if Settings.StopWave > 0 and startedRounds >= Settings.StopWave then
+		return
+	end
+	local trigger = resolveStartTrigger()
+	if not trigger then
+		return
+	end
+	if trigger:IsA("ProximityPrompt") then
+		if type(fireproximityprompt) == "function" then
+			pcall(fireproximityprompt, trigger)
+			startedRounds += 1
+		end
+	elseif trigger:IsA("RemoteEvent") then
+		pcall(function()
+			trigger:FireServer()
+		end)
+		startedRounds += 1
+	elseif trigger:IsA("RemoteFunction") then
+		pcall(function()
+			trigger:InvokeServer()
+		end)
+		startedRounds += 1
+	end
+end
+
+---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
 
@@ -365,6 +465,7 @@ end
 local Player = ctx:SubTab("Player", "Lucide:user")
 local Visuals = ctx:SubTab("Visuals", "Lucide:eye")
 local Events = ctx:SubTab("Events", "Lucide:alert-triangle")
+local Reprieve = ctx:SubTab("REPRIEVE", "Lucide:shield")
 
 Player:AddSection("Movement", "Lucide:gauge")
 Player:AddToggle({
@@ -475,6 +576,45 @@ Events:AddToggle({
 	end,
 })
 
+Reprieve:AddSection("Parry", "Lucide:shield")
+Reprieve:AddToggle({
+	Text = "No Parry Cooldown",
+	Description = "Removes the parry recharge so you can parry instantly",
+	Icon = "Lucide:shield",
+	Default = false,
+	Flag = "gr_no_parry_cooldown",
+	Callback = function(value)
+		Settings.NoParryCooldown = value
+	end,
+})
+
+Reprieve:AddSection("Rounds", "Lucide:repeat")
+Reprieve:AddToggle({
+	Text = "Auto Start Next Round",
+	Description = "Fires the round start trigger automatically",
+	Icon = "Lucide:repeat",
+	Default = false,
+	Flag = "gr_auto_start_round",
+	Callback = function(value)
+		Settings.AutoStartRound = value
+		startedRounds = 0
+		if value then
+			startTrigger = nil
+		end
+	end,
+})
+Reprieve:AddTextbox({
+	Text = "Stop At Wave",
+	Description = "Auto-start stops after this many rounds (0 = never)",
+	Icon = "Lucide:flag",
+	Placeholder = "e.g. 10",
+	Default = "0",
+	Flag = "gr_stop_wave",
+	Callback = function(value)
+		Settings.StopWave = math.max(tonumber(value) or 0, 0)
+	end,
+})
+
 ---------------------------------------------------------------------
 -- Background loops
 ---------------------------------------------------------------------
@@ -516,6 +656,24 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.NoParryCooldown then
+			pcall(removeParryCooldown)
+		end
+		task.wait(0.03)
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoStartRound then
+			pcall(startNextRound)
+		end
+		task.wait(0.25)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid then
@@ -536,6 +694,7 @@ end)
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.EntityEsp, Settings.DoorWaypoint, Settings.EventNotifier = false, false, false
+	Settings.NoParryCooldown, Settings.AutoStartRound = false, false
 	for _, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

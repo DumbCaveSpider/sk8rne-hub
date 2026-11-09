@@ -24,6 +24,7 @@ Games.List = {
 	{ Key = "KayoSports",Name = "Kayo Sports", Icon = "Lucide:trophy", PlaceId = 134767568300039, UniverseId = 10097848588 },
 	-- Alt universe 10537404632 (lobby 136320336970913 / game 80830570747523) shares this game.
 	{ Key = "13DaysToEscape", Name = "13 Days to Escape", Icon = "Lucide:lock", PlaceId = 109877974698369, UniverseId = 10769941703 },
+	{ Key = "Battlepath", Name = "BATTLEPATH!", Icon = "Lucide:swords", PlaceId = 80742912025953, UniverseId = 7849103116 },
 }
 
 -- Stop functions the old standalone scripts left in getgenv(), called once before the hub starts.

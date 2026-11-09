@@ -578,9 +578,9 @@ local function autoAbilityStep()
 	end
 	local id = equippedMove()
 	nextAbilityCastAt = now + moveCooldown(id)
-	-- Moves are used by id; "special" is only the server's VFX event.
-	fireRemote("Attack", id)
-	logOnce("ability_cast_ok", "auto ability: using the equipped move", "info")
+	-- E is the game's ability bind, so it casts the equipped move natively.
+	pressKey(Enum.KeyCode.E)
+	logOnce("ability_cast_ok", "auto ability: pressing E", "info")
 end
 
 -- Tell the user when the equipped move isn't actually owned: the server ignores

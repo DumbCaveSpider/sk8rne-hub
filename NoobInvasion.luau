@@ -673,8 +673,11 @@ local function autoChaseStep()
 	if waypoint.Action == Enum.PathWaypointAction.Jump then
 		humanoid.Jump = true
 	end
-	if lastChasePosition ~= waypoint then
+	-- Re-issue MoveTo when the waypoint changes, and also every 0.5s in case the humanoid
+	-- stalled on the previous command (MoveTo stops itself if it cannot reach the goal).
+	if lastChasePosition ~= waypoint or now - lastChaseMoveAt > 0.5 then
 		lastChasePosition = waypoint
+		lastChaseMoveAt = now
 		humanoid:MoveTo(waypoint.Position)
 	end
 	if (myRoot.Position - waypoint.Position).Magnitude < 3 then

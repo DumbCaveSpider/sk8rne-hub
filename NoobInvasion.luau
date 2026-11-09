@@ -432,25 +432,36 @@ local function autoDashStep()
 	if not myRoot or not humanoid then
 		return
 	end
-	-- Pure dash: the game dashes in the current walk/facing direction, so there is no
-	-- dodge or steering logic here. Log the movement so we can prove it actually dashed.
+	-- The game's dash is a client-side velocity impulse (DASH.go) plus the remote call,
+	-- so firing the remote alone never moves the player. Apply the impulse ourselves in
+	-- the walking direction, falling back to the way the character faces.
+	local direction = humanoid.MoveDirection
+	local source = "walking"
+	if direction.Magnitude < 0.1 then
+		direction = myRoot.CFrame.LookVector
+		source = "facing"
+	end
+	direction = Vector3.new(direction.X, 0, direction.Z)
+	if direction.Magnitude < 0.1 then
+		direction = Vector3.new(0, 0, -1)
+		source = "default"
+	end
+	direction = direction.Unit
 	local before = myRoot.Position
-	local facing = myRoot.CFrame.LookVector
-	local moveDir = humanoid.MoveDirection
+	pcall(function()
+		myRoot.AssemblyLinearVelocity = direction * 65 + Vector3.new(0, 10, 0)
+		myRoot.AssemblyAngularVelocity = Vector3.zero
+	end)
 	fireRemote("Attack", "dash")
 	task.delay(0.35, function()
 		local after = getRootPart()
 		local moved = after and (after.Position - before).Magnitude or -1
 		ctx:Log(
 			string.format(
-				"[NI] auto dash: fired | moved=%.1f studs | facing=%.2f,%.2f,%.2f | walking=%.2f,%.2f,%.2f",
+				"[NI] auto dash: fired | moved=%.1f studs | dir=%s | source=%s",
 				moved,
-				facing.X,
-				facing.Y,
-				facing.Z,
-				moveDir.X,
-				moveDir.Y,
-				moveDir.Z
+				tostring(direction),
+				source
 			),
 			moved >= 3 and "info" or "warn"
 		)

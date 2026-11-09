@@ -58,6 +58,7 @@ local Settings = {
 	HazardWarn = false,
 	AutoDodge = false,
 	UnlimitedStamina = false,
+	UnlimitedOxygen = false,
 	AutoWrite = false,
 	WriteWord = "money",
 }
@@ -463,21 +464,54 @@ end
 -- Stamina + writer
 ---------------------------------------------------------------------
 
+local lastStaminaLog = 0
 local function unlimitedStaminaStep()
+	local now = os.clock()
 	local stamina = LocalPlayer:GetAttribute("Stamina")
-	if typeof(stamina) ~= "number" or stamina < 100 then
+	local isNumber = typeof(stamina) == "number"
+	if not isNumber or stamina < 100 then
 		pcall(function()
 			LocalPlayer:SetAttribute("Stamina", 100)
 		end)
 	end
 	local sprintRemotes = ReplicatedStorage:FindFirstChild("SprintRemotes")
 	local setSprint = sprintRemotes and sprintRemotes:FindFirstChild("SetSprint")
+	local fired = false
 	if setSprint and setSprint:IsA("RemoteEvent") then
 		pcall(function()
 			setSprint:FireServer(true)
 		end)
+		fired = true
+	end
+	if now - lastStaminaLog >= 2 then
+		lastStaminaLog = now
+		ctx:Log(
+			string.format(
+				"[SYI] stamina debug: attribute=%s sprintRemote=%s",
+				isNumber and tostring(math.floor(stamina)) or "nil",
+				tostring(fired)
+			),
+			"info"
+		)
 	end
 	logOnce("stamina_ok", "unlimited stamina: keeping stamina full", "info")
+end
+
+local lastBreathLog = 0
+local function unlimitedOxygenStep()
+	local now = os.clock()
+	local breath = LocalPlayer:GetAttribute("Breath")
+	local isNumber = typeof(breath) == "number"
+	if not isNumber or breath < 100 then
+		pcall(function()
+			LocalPlayer:SetAttribute("Breath", 100)
+		end)
+	end
+	if now - lastBreathLog >= 2 then
+		lastBreathLog = now
+		ctx:Log(string.format("[SYI] oxygen debug: breath=%s", isNumber and tostring(math.floor(breath)) or "nil"), "info")
+	end
+	logOnce("oxygen_ok", "unlimited oxygen: keeping breath full", "info")
 end
 
 local WRITE_CANDIDATES = {
@@ -679,6 +713,16 @@ Player:AddToggle({
 	Flag = "syi_infinite_jump",
 	Callback = function(value)
 		Settings.InfiniteJump = value
+	end,
+})
+Player:AddToggle({
+	Text = "Unlimited Oxygen",
+	Description = "Keeps your Breath attribute full so you never drown",
+	Icon = "Lucide:wind",
+	Default = false,
+	Flag = "syi_unlimited_oxygen",
+	Callback = function(value)
+		Settings.UnlimitedOxygen = value
 	end,
 })
 Player:AddToggle({
@@ -1024,6 +1068,9 @@ task.spawn(function()
 		if Settings.UnlimitedStamina then
 			pcall(unlimitedStaminaStep)
 		end
+		if Settings.UnlimitedOxygen then
+			pcall(unlimitedOxygenStep)
+		end
 		if Settings.AutoWrite then
 			pcall(autoWriteStep)
 		end
@@ -1072,6 +1119,7 @@ ctx:OnCleanup(function()
 	Settings.AutoSwing, Settings.AutoCarry, Settings.AutoClaimDiary = false, false, false
 	Settings.AutoUseItem, Settings.HazardWarn, Settings.AutoDodge = false, false, false
 	Settings.UnlimitedStamina, Settings.AutoWrite = false, false
+	Settings.UnlimitedOxygen = false
 	for instance, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

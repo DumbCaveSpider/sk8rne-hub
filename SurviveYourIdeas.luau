@@ -198,19 +198,38 @@ end
 -- Remotes
 ---------------------------------------------------------------------
 
-local function remotesFolder()
-	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-	local client = remotes and remotes:FindFirstChild("Client")
-	local gameRemotes = client and client:FindFirstChild("Game")
-	return gameRemotes or remotes
+local function folderPath(...)
+	local current = ReplicatedStorage
+	for _, name in ipairs({ ... }) do
+		current = current:FindFirstChild(name)
+		if not current then
+			return nil
+		end
+	end
+	return current
 end
 
+-- This game scatters its remotes across several top-level folders.
+local REMOTE_FOLDERS = {
+	{ "Remotes", "Client", "Game" },
+	{ "Remotes" },
+	{ "SprintRemotes" },
+	{ "Items", "Remotes" },
+	{ "MetaWords", "Remotes" },
+	{ "WriterRemotes" },
+	{ "CarryRemotes" },
+	{ "WeaponSystem", "MeleeRemotes" },
+}
+
 local function findRemote(name)
-	local folder = remotesFolder()
-	if not folder then
-		return nil
+	for _, path in ipairs(REMOTE_FOLDERS) do
+		local folder = folderPath(table.unpack(path))
+		local remote = folder and folder:FindFirstChild(name)
+		if remote and (remote:IsA("RemoteEvent") or remote:IsA("UnreliableRemoteEvent") or remote:IsA("RemoteFunction")) then
+			return remote
+		end
 	end
-	return folder:FindFirstChild(name)
+	return nil
 end
 
 local function fireRemote(name, ...)
@@ -461,17 +480,6 @@ local function unlimitedStaminaStep()
 	logOnce("stamina_ok", "unlimited stamina: keeping stamina full", "info")
 end
 
-local function folderPath(...)
-	local current = ReplicatedStorage
-	for _, name in ipairs({ ... }) do
-		current = current:FindFirstChild(name)
-		if not current then
-			return nil
-		end
-	end
-	return current
-end
-
 local WRITE_CANDIDATES = {
 	{ { "MetaWords", "Remotes" }, "Submit" },
 	{ { "MetaWords", "Remotes" }, "Write" },
@@ -493,8 +501,11 @@ local function findWriteRemote()
 end
 
 task.spawn(function()
-	local metaRemotes = folderPath("MetaWords", "Remotes")
-	local writerRemotes = ReplicatedStorage:FindFirstChild("WriterRemotes")
+	local metaWords = ReplicatedStorage:WaitForChild("MetaWords", 15)
+	local metaRemotes = metaWords and metaWords:WaitForChild("Remotes", 15)
+	local writerRemotes = ReplicatedStorage:WaitForChild("WriterRemotes", 15)
+	local sprintRemotes = ReplicatedStorage:WaitForChild("SprintRemotes", 15)
+	local itemsRemotes = folderPath("Items", "Remotes")
 	local function names(folder)
 		local list = {}
 		if folder then
@@ -506,6 +517,8 @@ task.spawn(function()
 	end
 	ctx:Log("[SYI] MetaWords.Remotes: " .. names(metaRemotes), "info")
 	ctx:Log("[SYI] WriterRemotes: " .. names(writerRemotes), "info")
+	ctx:Log("[SYI] SprintRemotes: " .. names(sprintRemotes), "info")
+	ctx:Log("[SYI] Items.Remotes: " .. names(itemsRemotes), "info")
 end)
 
 local nextWriteAt = 0

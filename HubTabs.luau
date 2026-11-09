@@ -19,21 +19,37 @@ local function getDumpFolderName(session)
 	return safeFileName(name) .. "_dump"
 end
 
-local function hasScripts(instance)
-	if instance:IsA("LuaSourceContainer") then
-		return true
-	end
-	for _, descendant in ipairs(instance:GetDescendants()) do
-		if descendant:IsA("LuaSourceContainer") then
-			return true
+-- Every dump loop calls the step function this returns. It yields for a frame once the current
+-- frame has used FRAME_BUDGET seconds, so even a very large game keeps rendering while it dumps.
+local FRAME_BUDGET = 0.008
+
+local function newFrameBudget(session)
+	local started = os.clock()
+	return function()
+		if os.clock() - started >= FRAME_BUDGET then
+			session.task.wait()
+			started = os.clock()
 		end
 	end
-	return false
+end
+
+-- Marks each script and everything between it and the root, in one pass over the tree.
+local function markScriptHolders(root, holders, step)
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("LuaSourceContainer") then
+			local current = descendant
+			while current and current ~= root and not holders[current] do
+				holders[current] = true
+				current = current.Parent
+			end
+		end
+		step()
+	end
 end
 
 -- Plans the whole tree first so progress can be shown. Instances that hold no scripts are skipped,
 -- and names that would collide on a case-insensitive disk get a number.
-local function collectDumpEntries(parent, path, folders, scripts)
+local function collectDumpEntries(parent, path, folders, scripts, holders, step)
 	local used = {}
 	local function uniqueName(name)
 		local base = safeFileName(name)
@@ -47,31 +63,31 @@ local function collectDumpEntries(parent, path, folders, scripts)
 	end
 
 	for _, child in ipairs(parent:GetChildren()) do
-		if hasScripts(child) then
+		if holders[child] then
 			local name = uniqueName(child.Name)
 			if child:IsA("LuaSourceContainer") then
 				table.insert(scripts, { Instance = child, Path = path .. "/" .. name .. ".luau" })
 			end
-			if #child:GetChildren() > 0 then
-				local folder = path .. "/" .. name
-				local before = #folders + #scripts
-				table.insert(folders, folder)
-				collectDumpEntries(child, folder, folders, scripts)
-				if #folders + #scripts == before + 1 then
-					table.remove(folders) -- A script whose children hold no other scripts needs no folder.
-				end
+			local before = #folders + #scripts
+			table.insert(folders, path .. "/" .. name)
+			collectDumpEntries(child, path .. "/" .. name, folders, scripts, holders, step)
+			if #folders + #scripts == before + 1 then
+				table.remove(folders) -- A script whose children hold no other scripts needs no folder.
 			end
 		end
+		step()
 	end
 end
 
-local DUMP_IDLE_TEXT = "Dump Scripts"
+local DUMP_IDLE_TEXT = "Dump Everything"
+local MAX_FAILURE_LOGS = 20
 
--- Each source is { Instance, Folder }: an instance to dump, saved under that path inside the root.
-local function dumpSources(session, statusLine, sources)
-	local root = getDumpFolderName(session)
+-- Each source is { Instance, Folder }: an instance to dump, saved under that path inside root.
+-- Returns how many scripts were saved and how many were found.
+local function dumpScripts(session, statusLine, root, sources, step)
 	local folders, scripts = { root }, {}
 	for _, source in ipairs(sources) do
+		statusLine:Set("Scanning " .. source.Folder)
 		local path = root
 		for segment in source.Folder:gmatch("[^/]+") do
 			path = path .. "/" .. segment
@@ -79,19 +95,16 @@ local function dumpSources(session, statusLine, sources)
 				table.insert(folders, path)
 			end
 		end
-		collectDumpEntries(source.Instance, path, folders, scripts)
-	end
-
-	if #scripts == 0 then
-		session.Log("No scripts found to dump", "warn")
-		session.Notify("No scripts found to dump.", "warning")
-		return
+		local holders = {}
+		markScriptHolders(source.Instance, holders, step)
+		collectDumpEntries(source.Instance, path, folders, scripts, holders, step)
 	end
 
 	for _, folder in ipairs(folders) do
 		if not isfolder(folder) then
 			makefolder(folder)
 		end
+		step()
 	end
 
 	local failed = 0
@@ -101,17 +114,17 @@ local function dumpSources(session, statusLine, sources)
 			writefile(entry.Path, source)
 		else
 			failed += 1
-			session.Log("Could not decompile " .. entry.Instance:GetFullName() .. ": " .. tostring(source), "warn")
+			if failed <= MAX_FAILURE_LOGS then
+				session.Log("Could not decompile " .. entry.Instance:GetFullName() .. ": " .. tostring(source), "warn")
+			elseif failed == MAX_FAILURE_LOGS + 1 then
+				session.Log("More scripts failed to decompile. Further failures won't be listed.", "warn")
+			end
 		end
-		statusLine:Set(string.format("Dumping %d/%d", index, #scripts))
-		if index % 5 == 0 then
-			session.task.wait()
-		end
+		statusLine:Set(string.format("Dumping scripts %d/%d", index, #scripts))
+		step()
 	end
 
-	local summary = string.format("Saved %d of %d scripts to workspace/%s", #scripts - failed, #scripts, root)
-	session.Log(summary, failed > 0 and "warn" or "info")
-	session.Notify(summary, failed > 0 and "warning" or "success", 6)
+	return #scripts - failed, #scripts
 end
 
 -- Instance tree dump: lists what a script dump can't show, such as buttons, prompts and values.
@@ -187,9 +200,9 @@ end
 
 -- Keeps files readable: an instance is listed only if it, or something inside it, is interesting.
 -- Returns the number of lines saved and whether the file hit the line limit.
-local function writeInstanceTree(session, root, path, skip)
+local function writeInstanceTree(root, path, skip, step)
 	local keep = {}
-	for index, descendant in ipairs(root:GetDescendants()) do
+	for _, descendant in ipairs(root:GetDescendants()) do
 		local ok, interesting = pcall(isTreeInteresting, descendant)
 		if ok and interesting and not (skip and skip(descendant)) then
 			local current = descendant
@@ -198,9 +211,7 @@ local function writeInstanceTree(session, root, path, skip)
 				current = current.Parent
 			end
 		end
-		if index % 5000 == 0 then
-			session.task.wait()
-		end
+		step()
 	end
 
 	local lines = { root:GetFullName() }
@@ -219,9 +230,7 @@ local function writeInstanceTree(session, root, path, skip)
 					table.insert(lines, "... stopped at the line limit")
 					return
 				end
-				if #lines % 5000 == 0 then
-					session.task.wait()
-				end
+				step()
 				visit(child, depth + 1)
 			end
 		end
@@ -232,10 +241,9 @@ local function writeInstanceTree(session, root, path, skip)
 	return #lines, truncated
 end
 
-local function dumpInstanceTrees(session, statusLine)
+-- Returns the number of tree lines saved.
+local function dumpInstanceTrees(session, statusLine, root, step)
 	local Players = game:GetService("Players")
-	local localPlayer = Players.LocalPlayer
-	local root = getDumpFolderName(session)
 	local folder = root .. "/InstanceTree"
 	for _, path in ipairs({ root, folder }) do
 		if not isfolder(path) then
@@ -255,23 +263,52 @@ local function dumpInstanceTrees(session, statusLine)
 	local trees = {
 		{ Name = "Workspace", Instance = workspace, Skip = isInPlayerCharacter },
 		{ Name = "ReplicatedStorage", Instance = game:GetService("ReplicatedStorage") },
-		{ Name = "LocalPlayer", Instance = localPlayer },
+		{ Name = "LocalPlayer", Instance = Players.LocalPlayer },
 	}
 
 	local total = 0
 	for _, tree in ipairs(trees) do
 		statusLine:Set("Listing " .. tree.Name)
-		local count, truncated = writeInstanceTree(session, tree.Instance, folder .. "/" .. tree.Name .. ".txt", tree.Skip)
+		local count, truncated = writeInstanceTree(tree.Instance, folder .. "/" .. tree.Name .. ".txt", tree.Skip, step)
 		total += count
 		session.Log(
-			string.format("%s: %d lines%s", tree.Name, count, truncated and " (stopped at the line limit)" or ""),
+			string.format("%s tree: %d lines%s", tree.Name, count, truncated and " (stopped at the line limit)" or ""),
 			truncated and "warn" or "info"
 		)
 	end
+	return total
+end
 
-	local summary = string.format("Saved %d lines to workspace/%s", total, folder)
+-- StarterPlayer and ReplicatedStorage scripts, then the instance trees, all in one dump folder.
+local function dumpEverything(session, statusLine)
+	local step = newFrameBudget(session)
+	local root = getDumpFolderName(session)
+	if not isfolder(root) then
+		makefolder(root)
+	end
+
+	local saved, found = 0, 0
+	if decompile then
+		local StarterPlayer = game:GetService("StarterPlayer")
+		local sources = {}
+		for _, name in ipairs({ "StarterCharacterScripts", "StarterPlayerScripts" }) do
+			local container = StarterPlayer:WaitForChild(name, 5)
+			if container then
+				table.insert(sources, { Instance = container, Folder = "StarterPlayer/" .. name })
+			end
+		end
+		table.insert(sources, { Instance = game:GetService("ReplicatedStorage"), Folder = "ReplicatedStorage" })
+		saved, found = dumpScripts(session, statusLine, root, sources, step)
+		session.Log(string.format("Scripts: saved %d of %d", saved, found), saved < found and "warn" or "info")
+	else
+		session.Log("Your executor can't decompile, so scripts were skipped", "warn")
+	end
+
+	local treeLines = dumpInstanceTrees(session, statusLine, root, step)
+
+	local summary = string.format("Saved %d of %d scripts and %d tree lines to workspace/%s", saved, found, treeLines, root)
 	session.Log(summary)
-	session.Notify(summary, "success", 6)
+	session.Notify(summary, saved < found and "warning" or "success", 8)
 end
 
 local function buildDebugConsole(session)
@@ -336,53 +373,14 @@ local function buildDebugConsole(session)
 		end)
 	end
 
-	local function runDump(getSources)
-		if not decompile then
-			session.Notify("Your executor can't decompile scripts.", "error")
-			return
-		end
-		startDumpTask(function()
-			dumpSources(session, dumpStatus, getSources())
-		end)
-	end
-
 	Console:AddButton({
-		Text = "Dump Instance Tree",
-		Description = "Lists buttons, prompts, values and labels in workspace/" .. dumpFolder .. "/InstanceTree",
-		Icon = "Lucide:list-tree",
+		Text = "Dump Everything",
+		Description = "Saves StarterPlayer and ReplicatedStorage scripts plus the instance trees to workspace/"
+			.. dumpFolder,
+		Icon = "Lucide:folder-down",
 		Callback = function()
 			startDumpTask(function()
-				dumpInstanceTrees(session, dumpStatus)
-			end)
-		end,
-	})
-	Console:AddButton({
-		Text = "Dump ReplicatedStorage",
-		Description = "Saves ReplicatedStorage's folders and scripts to workspace/" .. dumpFolder,
-		Icon = "Lucide:folder-down",
-		Callback = function()
-			runDump(function()
-				return { { Instance = game:GetService("ReplicatedStorage"), Folder = "" } }
-			end)
-		end,
-	})
-	Console:AddButton({
-		Text = "Dump StarterPlayer",
-		Description = "Saves the character and player scripts to workspace/" .. dumpFolder .. "/StarterPlayer",
-		Icon = "Lucide:folder-down",
-		Callback = function()
-			runDump(function()
-				local StarterPlayer = game:GetService("StarterPlayer")
-				return {
-					{
-						Instance = StarterPlayer:WaitForChild("StarterCharacterScripts"),
-						Folder = "StarterPlayer/StarterCharacterScripts",
-					},
-					{
-						Instance = StarterPlayer:WaitForChild("StarterPlayerScripts"),
-						Folder = "StarterPlayer/StarterPlayerScripts",
-					},
-				}
+				dumpEverything(session, dumpStatus)
 			end)
 		end,
 	})

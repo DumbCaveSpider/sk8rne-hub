@@ -4,7 +4,6 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -422,6 +421,25 @@ local function autoChaseStep()
 	logOnce("chase_ok", "auto chase: steering toward the nearest noob", "info")
 end
 
+local function pressKey(keyCode)
+	local ok = pcall(function()
+		keypress(keyCode)
+	end)
+	if ok then
+		task.wait(0.05)
+		pcall(function()
+			keyrelease(keyCode)
+		end)
+		return true
+	end
+	return pcall(function()
+		local virtualInput = game:GetService("VirtualInputManager")
+		virtualInput:SendKeyEvent(true, keyCode, false, game)
+		task.wait(0.05)
+		virtualInput:SendKeyEvent(false, keyCode, false, game)
+	end)
+end
+
 local function autoDashStep()
 	local now = os.clock()
 	if now < nextDashAt then
@@ -429,67 +447,22 @@ local function autoDashStep()
 	end
 	nextDashAt = now + 1.2
 	local myRoot = getRootPart()
-	local humanoid = getHumanoid()
-	if not myRoot or not humanoid then
+	if not myRoot then
 		return
 	end
-	-- The game's dash is a client-side velocity impulse (DASH.go) plus the remote call,
-	-- so firing the remote alone never moves the player. Apply the impulse ourselves in
-	-- the walking direction, falling back to the way the character faces.
-	local direction = humanoid.MoveDirection
-	local source = "walking"
-	if direction.Magnitude < 0.1 then
-		direction = myRoot.CFrame.LookVector
-		source = "facing"
-	end
-	direction = Vector3.new(direction.X, 0, direction.Z)
-	if direction.Magnitude < 0.1 then
-		direction = Vector3.new(0, 0, -1)
-		source = "default"
-	end
-	direction = direction.Unit
 	local before = myRoot.Position
-	-- The game dashes with a LinearVelocity constraint (140 studs/s decaying over 0.3s),
-	-- so setting AssemblyLinearVelocity alone gets overridden by the humanoid controller.
-	pcall(function()
-		myRoot.CFrame = CFrame.lookAt(myRoot.Position, myRoot.Position + direction)
-	end)
-	pcall(function()
-		local attachment = myRoot:FindFirstChild("RootAttachment") or Instance.new("Attachment", myRoot)
-		local linear = Instance.new("LinearVelocity")
-		linear.Attachment0 = attachment
-		linear.RelativeTo = Enum.ActuatorRelativeTo.World
-		linear.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-		linear.MaxAxesForce = Vector3.new(1000000, 0, 1000000)
-		linear.VectorVelocity = direction * 140
-		linear.Parent = myRoot
-		local startedAt = os.clock()
-		local connection
-		connection = RunService.Heartbeat:Connect(function()
-			local t = (os.clock() - startedAt) / 0.3
-			if t >= 1 or not linear.Parent or not myRoot.Parent then
-				connection:Disconnect()
-				linear:Destroy()
-				return
-			end
-			linear.VectorVelocity = direction * (35 + 105 * (1 - t) ^ 2)
-		end)
-	end)
-	fireRemote("Attack", "dash")
-	task.delay(0.35, function()
+	-- Pressing Q runs the game's own DASH.go: it applies the LinearVelocity, plays the
+	-- animation and VFX, and fires the server dash, so this is the exact native dash.
+	pressKey(Enum.KeyCode.Q)
+	task.delay(0.4, function()
 		local after = getRootPart()
 		local moved = after and (after.Position - before).Magnitude or -1
 		ctx:Log(
-			string.format(
-				"[NI] auto dash: fired | moved=%.1f studs | dir=%s | source=%s",
-				moved,
-				tostring(direction),
-				source
-			),
+			string.format("[NI] auto dash: pressed Q | moved=%.1f studs", moved),
 			moved >= 3 and "info" or "warn"
 		)
 	end)
-	logOnce("dash_ok", "auto dash: dashing in the walking direction", "info")
+	logOnce("dash_ok", "auto dash: pressing Q", "info")
 end
 
 -- Auto-pick perks only when the SERVER sends an offer. Nothing is fired client-side.

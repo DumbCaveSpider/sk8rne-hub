@@ -512,7 +512,7 @@ end
 
 local espFolder = ctx:Track(Instance.new("Folder"))
 espFolder.Name = "Sk8rne13DEsp"
-espFolder.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+espFolder.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 local espEntries = {}
 
@@ -744,7 +744,7 @@ scheduleHud.ResetOnSpawn = false
 scheduleHud.IgnoreGuiInset = true
 scheduleHud.DisplayOrder = 80
 scheduleHud.Enabled = false
-scheduleHud.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+scheduleHud.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 local scheduleLabel = Instance.new("TextLabel")
 scheduleLabel.Size = UDim2.fromOffset(280, 62)
@@ -1174,7 +1174,9 @@ task.spawn(function()
 		if Settings.ShowSchedule and scheduleHud.Enabled then
 			local ok, text = pcall(getScheduleText)
 			if ok then
-				scheduleLabel.Text = text
+				pcall(function()
+					scheduleLabel.Text = text
+				end)
 			end
 		end
 		task.wait(1)

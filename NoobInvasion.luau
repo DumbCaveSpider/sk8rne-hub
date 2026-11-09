@@ -595,7 +595,14 @@ local function autoChaseStep()
 		chaseTargetPos = noob.Position
 		lastRepathAt = now
 		if not buildChasePath(noob) then
-			humanoid:MoveTo(noob.Position)
+			chasePath = nil
+			-- Pathfinding unavailable here: fall back to a throttled direct walk. Re-issuing
+			-- MoveTo every tick is what stalls the character, so keep it to 0.25s / 4 studs.
+			if now - lastChaseMoveAt > 0.25 then
+				lastChaseMoveAt = now
+				humanoid:MoveTo(noob.Position)
+			end
+			logOnce("chase_nopath", "auto chase: pathfinding failed, walking directly", "warn")
 			return
 		end
 	end

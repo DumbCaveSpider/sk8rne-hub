@@ -1282,6 +1282,18 @@ local function selectWeapon(weaponName)
 		logOnce("weapon_missing", "ReplicatedStorage.Weapon not found", "warn")
 		return false
 	end
+	-- The game only accepts a pick from the lobby WeaponPick screen, and only for owned
+	-- weapons, so report what actually happened instead of pretending it worked.
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	local pickScreen = playerGui and playerGui:FindFirstChild("WeaponPick")
+	local owned = ("," .. tostring(LocalPlayer:GetAttribute("OwnedWeapons") or "") .. ","):find(
+		"," .. weaponName .. ",",
+		1,
+		true
+	) ~= nil
+	if weaponName ~= "Fists" and not owned then
+		ctx:Log("[NI] weapon: you do not own " .. weaponName, "warn")
+	end
 	pcall(function()
 		if weaponRemote:IsA("RemoteEvent") then
 			weaponRemote:FireServer(weaponName)
@@ -1289,7 +1301,18 @@ local function selectWeapon(weaponName)
 			weaponRemote:InvokeServer(weaponName)
 		end
 	end)
-	ctx:Log("[NI] weapon selected: " .. weaponName, "info")
+	task.delay(0.6, function()
+		local after = LocalPlayer:GetAttribute("Weapon")
+		if after == weaponName then
+			ctx:Log("[NI] weapon changed to " .. weaponName, "info")
+			return
+		end
+		if not (pickScreen and pickScreen.Enabled) then
+			ctx:Log("[NI] weapon: the WeaponPick screen is not open, pick from the lobby", "warn")
+		else
+			ctx:Log("[NI] weapon unchanged (" .. tostring(after) .. ") - not owned or rejected", "warn")
+		end
+	end)
 	return true
 end
 

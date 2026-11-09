@@ -28,6 +28,7 @@ local Settings = {
 	NoParryCooldown = false,
 	AutoStartRound = false,
 	StopWave = 0,
+	AutoParry = false,
 }
 
 -- What each entity actually does, shown in the event panel.
@@ -439,6 +440,46 @@ local function startNextRound()
 	end
 end
 
+-- Entities validate parries from ClientParryAttempt, checking the attachment's facing, so we
+-- keep one attachment pinned to the camera and fire attempts from it.
+local ClientParryAttempt = ReplicatedStorage:FindFirstChild("ClientParryAttempt")
+local parryAttachment = nil
+local nextParryAt = 0
+
+local function ensureParryAttachment()
+	if parryAttachment and parryAttachment.Parent then
+		return parryAttachment
+	end
+	parryAttachment = Instance.new("Attachment")
+	parryAttachment.Name = "Sk8rneParry"
+	parryAttachment.Visible = false
+	parryAttachment.Parent = workspace:FindFirstChild("Terrain") or workspace
+	return parryAttachment
+end
+
+local function autoParry()
+	if not ClientParryAttempt then
+		ClientParryAttempt = ReplicatedStorage:FindFirstChild("ClientParryAttempt")
+	end
+	if not ClientParryAttempt then
+		return
+	end
+	local now = os.clock()
+	if now < nextParryAt then
+		return
+	end
+	nextParryAt = now + 0.12
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	local attachment = ensureParryAttachment()
+	attachment.CFrame = camera.CFrame
+	pcall(function()
+		ClientParryAttempt:Fire(attachment, tostring(math.random(1, 1000000)))
+	end)
+end
+
 ---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
@@ -587,6 +628,16 @@ Reprieve:AddToggle({
 		Settings.NoParryCooldown = value
 	end,
 })
+Reprieve:AddToggle({
+	Text = "Auto Parry",
+	Description = "Fires parry attempts from your camera automatically",
+	Icon = "Lucide:shield-check",
+	Default = false,
+	Flag = "gr_auto_parry",
+	Callback = function(value)
+		Settings.AutoParry = value
+	end,
+})
 
 Reprieve:AddSection("Rounds", "Lucide:repeat")
 Reprieve:AddToggle({
@@ -674,6 +725,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoParry then
+			pcall(autoParry)
+		end
+		task.wait(0.05)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid then
@@ -695,6 +755,11 @@ ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.EntityEsp, Settings.DoorWaypoint, Settings.EventNotifier = false, false, false
 	Settings.NoParryCooldown, Settings.AutoStartRound = false, false
+	Settings.AutoParry = false
+	if parryAttachment then
+		parryAttachment:Destroy()
+		parryAttachment = nil
+	end
 	for _, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

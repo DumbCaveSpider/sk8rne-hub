@@ -426,7 +426,7 @@ local function buildDebugConsole(session)
 		Title = "Output",
 		Height = 300,
 		MaxLogs = 300,
-		AutoCapture = true, -- Also shows everything printed to the Roblox output
+		AutoCapture = false, -- Hub logs only; the game's prints flood the console otherwise
 	})
 	session:AttachConsole(console)
 

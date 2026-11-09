@@ -110,11 +110,9 @@ function Session:_log(message, level)
 		table.remove(self._logLines, 1)
 	end
 	if self._console then
-		local ok = pcall(self._console.Log, self._console, line, LOG_TYPES[level] or LOG_TYPES.info)
-		if not ok then
-			print(line)
-		end
+		pcall(self._console.Log, self._console, line, LOG_TYPES[level] or LOG_TYPES.info)
 	end
+	print(line)
 end
 
 function Session:AttachConsole(console)

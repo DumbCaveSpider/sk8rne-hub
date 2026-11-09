@@ -345,8 +345,9 @@ end
 
 local eventFrame = Instance.new("Frame")
 eventFrame.Name = "EventPanel"
-eventFrame.Size = UDim2.fromOffset(340, 68)
-eventFrame.Position = UDim2.new(0.5, -170, 0, 14)
+eventFrame.AnchorPoint = Vector2.new(1, 0.5)
+eventFrame.Position = UDim2.new(1, -16, 0.5, 0)
+eventFrame.Size = UDim2.fromOffset(320, 80)
 eventFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
 eventFrame.BackgroundTransparency = 0.25
 eventFrame.BorderSizePixel = 0
@@ -359,27 +360,29 @@ eventCorner.Parent = eventFrame
 
 local eventTitle = Instance.new("TextLabel")
 eventTitle.Name = "Title"
-eventTitle.Size = UDim2.new(1, -16, 0, 28)
+eventTitle.Size = UDim2.new(1, -16, 0, 22)
 eventTitle.Position = UDim2.fromOffset(8, 6)
 eventTitle.BackgroundTransparency = 1
 eventTitle.Font = Enum.Font.GothamBold
-eventTitle.TextSize = 17
+eventTitle.TextSize = 15
 eventTitle.TextXAlignment = Enum.TextXAlignment.Left
 eventTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-eventTitle.Text = ""
+eventTitle.Text = "ACTIVE EVENTS"
 eventTitle.Parent = eventFrame
 
-local eventHint = Instance.new("TextLabel")
-eventHint.Name = "Hint"
-eventHint.Size = UDim2.new(1, -16, 0, 24)
-eventHint.Position = UDim2.fromOffset(8, 34)
-eventHint.BackgroundTransparency = 1
-eventHint.Font = Enum.Font.Gotham
-eventHint.TextSize = 14
-eventHint.TextXAlignment = Enum.TextXAlignment.Left
-eventHint.TextColor3 = Color3.fromRGB(200, 200, 210)
-eventHint.Text = ""
-eventHint.Parent = eventFrame
+local eventBody = Instance.new("TextLabel")
+eventBody.Name = "Body"
+eventBody.Size = UDim2.new(1, -16, 1, -40)
+eventBody.Position = UDim2.fromOffset(8, 32)
+eventBody.BackgroundTransparency = 1
+eventBody.Font = Enum.Font.Gotham
+eventBody.TextSize = 13
+eventBody.TextXAlignment = Enum.TextXAlignment.Left
+eventBody.TextYAlignment = Enum.TextYAlignment.Top
+eventBody.TextWrapped = true
+eventBody.TextColor3 = Color3.fromRGB(200, 200, 210)
+eventBody.Text = ""
+eventBody.Parent = eventFrame
 
 local function activeEvents()
 	local active = {}
@@ -400,33 +403,67 @@ local function activeEvents()
 	return active
 end
 
-local lastEventName = nil
+local function modifierFolder()
+	local modifiers = ReplicatedStorage:FindFirstChild("Modifiers")
+	return modifiers and modifiers:FindFirstChild("Modifiers")
+end
+
+local function modifierLine(name)
+	local folder = modifierFolder()
+	local instance = folder and folder:FindFirstChild(name, true)
+	if not instance then
+		return name
+	end
+	local display = instance:GetAttribute("Name") or name
+	local desc = instance:GetAttribute("Desc")
+	if type(desc) == "string" and desc ~= "" then
+		return display .. " — " .. desc
+	end
+	return display
+end
+
+-- Votes are applied as attributes on workspace.Game.Modifier.
+local function activeModifiers()
+	local applied = {}
+	local gameFolder = workspace:FindFirstChild("Game")
+	local modifier = gameFolder and gameFolder:FindFirstChild("Modifier")
+	if not modifier then
+		return applied
+	end
+	for name, value in pairs(modifier:GetAttributes()) do
+		if value ~= nil and value ~= false and value ~= 0 then
+			table.insert(applied, name)
+		end
+	end
+	table.sort(applied)
+	return applied
+end
+
+local lastEventKey = nil
 
 local function eventStep()
 	if not Settings.EventNotifier then
 		eventFrame.Visible = false
 		return
 	end
-	local active = activeEvents()
-	if #active == 0 then
-		eventFrame.Visible = true
-		eventTitle.Text = "NO ACTIVE EVENT"
-		eventTitle.TextColor3 = Color3.fromRGB(140, 200, 140)
-		eventHint.Text = "Keep moving to the next saferoom"
-		return
+	local lines = {}
+	for _, name in ipairs(activeModifiers()) do
+		table.insert(lines, "• " .. modifierLine(name))
 	end
-	local name = active[1]
-	if name ~= lastEventName then
-		lastEventName = name
-		ctx:Log("[GRACE] event active: " .. tostring(name), "info")
+	for _, name in ipairs(activeEvents()) do
+		local info = EVENT_INFO[name]
+		table.insert(lines, "• " .. (info and (info.Title .. " — " .. info.Hint) or name))
 	end
-	local info = EVENT_INFO[name]
+	if #lines == 0 then
+		lines = { "No active modifiers or events" }
+	end
 	eventFrame.Visible = true
-	eventTitle.Text = info and info.Title or name
-	eventTitle.TextColor3 = info and info.Color or Color3.fromRGB(255, 255, 255)
-	eventHint.Text = info and info.Hint or "Unknown event"
-	if #active > 1 then
-		eventHint.Text = eventHint.Text .. string.format("  (+%d more)", #active - 1)
+	eventBody.Text = table.concat(lines, "\n")
+	eventFrame.Size = UDim2.fromOffset(320, 40 + #lines * 18)
+	local key = table.concat(lines, "\n")
+	if key ~= lastEventKey then
+		lastEventKey = key
+		ctx:Log("[GRACE] events: " .. #lines .. " active", "info")
 	end
 end
 

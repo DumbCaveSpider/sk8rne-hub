@@ -60,6 +60,8 @@ local Settings = {
 	UnlimitedStamina = false,
 	UnlimitedOxygen = false,
 	AutoStruggle = false,
+	AutoKillAura = false,
+	AuraRange = 30,
 	AutoWrite = false,
 	WriteWord = "money",
 	AutoWriteWorst = false,
@@ -662,6 +664,56 @@ local function autoStruggleStep()
 	logOnce("struggle_ok", "auto struggle: struggling out of grabs", "info")
 end
 
+local hitSeq = 0
+local nextAuraAt = 0
+
+local function findCreatureHitboxes(maxDistance)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return {}
+	end
+	local hitboxes = {}
+	local seen = {}
+	for _, tag in ipairs({ "Creature", "NextbotPupil", "SpiderRig", "TrollFace", "NameNpc" }) do
+		for _, instance in ipairs(CollectionService:GetTagged(tag)) do
+			if not seen[instance] and instance.Parent then
+				seen[instance] = true
+				local part = instance:FindFirstChild("ShootHitbox", true) or instance:FindFirstChildWhichIsA("BasePart", true)
+				if part then
+					if (part.Position - myRoot.Position).Magnitude <= maxDistance then
+						table.insert(hitboxes, part)
+					end
+				end
+			end
+		end
+	end
+	return hitboxes
+end
+
+local function autoKillAuraStep()
+	local now = os.clock()
+	if now < nextAuraAt then
+		return
+	end
+	nextAuraAt = now + 0.3
+	local hitboxes = findCreatureHitboxes(Settings.AuraRange)
+	if #hitboxes == 0 then
+		return
+	end
+	local weaponSystem = ReplicatedStorage:FindFirstChild("WeaponSystem")
+	local meleeRemotes = weaponSystem and weaponSystem:FindFirstChild("MeleeRemotes")
+	local hit = meleeRemotes and meleeRemotes:FindFirstChild("Hit")
+	if not (hit and hit:IsA("RemoteEvent")) then
+		logOnce("aura_nomote", "auto kill aura: WeaponSystem.MeleeRemotes.Hit not found", "warn")
+		return
+	end
+	hitSeq = hitSeq + 1
+	pcall(function()
+		hit:FireServer(hitSeq, hitboxes)
+	end)
+	logOnce("aura_ok", "auto kill aura: hitting nearby creatures", "info")
+end
+
 ---------------------------------------------------------------------
 -- Player helpers
 ---------------------------------------------------------------------
@@ -1100,6 +1152,30 @@ Farm:AddToggle({
 	end,
 })
 Farm:AddToggle({
+	Text = "Auto Kill Aura",
+	Description = "Hits every nearby creature's ShootHitbox through the melee remote",
+	Icon = "Lucide:swords",
+	Default = false,
+	Flag = "syi_auto_aura",
+	Callback = function(value)
+		Settings.AutoKillAura = value
+	end,
+})
+Farm:AddSlider({
+	Text = "Aura Range",
+	Description = "How far the kill aura reaches",
+	Icon = "Lucide:radar",
+	Min = 5,
+	Max = 120,
+	Default = 30,
+	Increment = 5,
+	Suffix = " studs",
+	Flag = "syi_aura_range",
+	Callback = function(value)
+		Settings.AuraRange = value
+	end,
+})
+Farm:AddToggle({
 	Text = "Auto Revive",
 	Description = "Sends the revive grant when you die",
 	Icon = "Lucide:heart-pulse",
@@ -1243,6 +1319,9 @@ task.spawn(function()
 		if Settings.AutoSwing then
 			pcall(autoSwingStep)
 		end
+		if Settings.AutoKillAura then
+			pcall(autoKillAuraStep)
+		end
 		if Settings.AutoUseItem then
 			pcall(autoUseItemStep)
 		end
@@ -1282,6 +1361,7 @@ ctx:OnCleanup(function()
 	Settings.AutoMastery = false
 	Settings.UnlimitedOxygen = false
 	Settings.AutoStruggle = false
+	Settings.AutoKillAura = false
 	for instance, entry in pairs(espEntries) do
 		entry.Gui:Destroy()
 		entry.Highlight:Destroy()

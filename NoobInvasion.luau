@@ -66,6 +66,34 @@ local function clickMouse()
 	end)
 end
 
+-- Hold or release LeftShift, the game's sprint key.
+local sprintDown = false
+local function setSprint(down)
+	if down == sprintDown then
+		return
+	end
+	sprintDown = down
+	if down then
+		local ok = pcall(function()
+			keypress(Enum.KeyCode.LeftShift)
+		end)
+		if not ok then
+			pcall(function()
+				game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+			end)
+		end
+	else
+		local ok = pcall(function()
+			keyrelease(Enum.KeyCode.LeftShift)
+		end)
+		if not ok then
+			pcall(function()
+				game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+			end)
+		end
+	end
+end
+
 -- Close the game's choice frame; firing the remote alone leaves the UI on screen.
 local function closeChoiceFrame(frameName)
 	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -87,6 +115,7 @@ local Settings = {
 	JumpOn = false,
 	JumpPower = 100,
 	InfiniteJump = false,
+	AutoSprint = false,
 	Godmode = false,
 	AutoAttack = false,
 	AutoKillAll = false,
@@ -812,6 +841,17 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
+	Text = "Auto Sprint",
+	Description = "Holds LeftShift so you always sprint",
+	Icon = "Lucide:wind",
+	Default = false,
+	Flag = "ni_auto_sprint",
+	Callback = function(value)
+		Settings.AutoSprint = value
+		setSprint(value)
+	end,
+})
+Player:AddToggle({
 	Text = "Godmode",
 	Description = "Keeps health and shield topped up",
 	Icon = "Lucide:shield",
@@ -1050,6 +1090,9 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
+		if Settings.AutoSprint then
+			setSprint(true)
+		end
 		if Settings.InfiniteJump then
 			local humanoid = getHumanoid()
 			if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
@@ -1113,6 +1156,7 @@ end)
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.InfiniteJump, Settings.Godmode = false, false
+	setSprint(false)
 	Settings.AutoAttack, Settings.AutoAbility = false, false
 	Settings.DebugLogs = false
 	Settings.AutoKillAll = false

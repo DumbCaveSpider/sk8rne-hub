@@ -40,6 +40,7 @@ local Settings = {
 	HidboxEsp = false,
 	HidboxWaypoint = false,
 	InfiniteWallJump = false,
+	ForceMovements = false,
 }
 
 -- Debug logging: each key only logs once so the console stays readable.
@@ -776,7 +777,22 @@ local function removeParryCooldown()
 	end
 end
 
--- Sprint counts wall kicks in an internal counter; ResetWallkicks() zeroes it.
+-- Sprint blocks jumps with Humanoid "NoJump", stuns with workspace "Stun" and PlatformStand.
+local function forceMovements()
+	local humanoid = getHumanoid()
+	if humanoid then
+		if humanoid:GetAttribute("NoJump") then
+			humanoid:SetAttribute("NoJump", false)
+		end
+		if humanoid.PlatformStand then
+			humanoid.PlatformStand = false
+		end
+	end
+	if (workspace:GetAttribute("Stun") or 0) > 0 then
+		workspace:SetAttribute("Stun", 0)
+	end
+	logOnce("movements_ok", "force movements: clearing NoJump / Stun / PlatformStand", "info")
+end
 local function resetWallkicks()
 	if ClientShared and type(ClientShared.ResetWallkicks) == "function" then
 		pcall(ClientShared.ResetWallkicks)
@@ -1313,6 +1329,16 @@ Events:AddToggle({
 })
 
 Player:AddToggle({
+	Text = "Force Enable Movements",
+	Description = "Clears jump locks, stuns and platform stands so slide-jumps and other moves always work",
+	Icon = "Lucide:move",
+	Default = false,
+	Flag = "gr_force_movements",
+	Callback = function(value)
+		Settings.ForceMovements = value
+	end,
+})
+Player:AddToggle({
 	Text = "Infinite Wall Jump",
 	Description = "Keeps resetting your wall-kick charges",
 	Icon = "Lucide:arrow-up-right",
@@ -1516,6 +1542,15 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
+		if Settings.ForceMovements then
+			pcall(forceMovements)
+		end
+		task.wait(0.1)
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
 		if Settings.InfiniteWallJump then
 			pcall(resetWallkicks)
 		end
@@ -1551,6 +1586,7 @@ ctx:OnCleanup(function()
 	Settings.SafeZoneWaypoint, Settings.DestroyMetalDoors = false, false
 	Settings.HidboxEsp, Settings.HidboxWaypoint = false, false
 	Settings.InfiniteWallJump = false
+	Settings.ForceMovements = false
 	removeSafeZone()
 	removeHidboxWaypoint()
 	if parryAttachment then

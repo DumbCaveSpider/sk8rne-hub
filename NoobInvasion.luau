@@ -47,6 +47,11 @@ local Settings = {
 	AutoPerkOffer = false,
 	NoCooldown = false,
 	HitAnyDirection = false,
+	AutoChase = false,
+	ChaseStop = 8,
+	AutoSuper = false,
+	AutoAbilityPick = false,
+	AbilityPickIndex = 1,
 	AutoUppercut = false,
 	AutoMove = false,
 	MoveId = "Beam",
@@ -327,6 +332,28 @@ faceNearestNoob = function()
 	return false
 end
 
+local nextChaseAt = 0
+local function autoChaseStep()
+	local now = os.clock()
+	if now < nextChaseAt then
+		return
+	end
+	nextChaseAt = now + 0.3
+	local humanoid = getHumanoid()
+	local myRoot = getRootPart()
+	if not humanoid or not myRoot then
+		return
+	end
+	local noob, distance = nearestNoob()
+	if not noob or not distance then
+		return
+	end
+	if distance > Settings.ChaseStop then
+		humanoid:MoveTo(noob.Position)
+		logOnce("chase_ok", "auto chase: walking to the nearest noob", "info")
+	end
+end
+
 local function autoDashStep()
 	local now = os.clock()
 	if now < nextDashAt then
@@ -400,6 +427,28 @@ local function autoPerkOfferStep()
 	end
 	nextPerkOfferAt = now + 2
 	firePerkOffer()
+end
+
+local nextSuperAt = 0
+local function autoSuperStep()
+	local now = os.clock()
+	if now < nextSuperAt then
+		return
+	end
+	nextSuperAt = now + 4
+	fireRemote("Attack", "super")
+	logOnce("super_ok", "auto super: firing the super attack", "info")
+end
+
+local nextAbilityAt = 0
+local function autoAbilityPickStep()
+	local now = os.clock()
+	if now < nextAbilityAt then
+		return
+	end
+	nextAbilityAt = now + 2
+	fireRemote("AbilityOffer", Settings.AbilityPickIndex)
+	logOnce("ability_ok", "auto ability: picking option " .. tostring(Settings.AbilityPickIndex), "info")
 end
 
 local nextUppercutAt = 0
@@ -646,6 +695,16 @@ Combat:AddToggle({
 	end,
 })
 Combat:AddToggle({
+	Text = "Auto Super",
+	Description = "Fires the super attack every 4s",
+	Icon = "Lucide:zap",
+	Default = false,
+	Flag = "ni_auto_super",
+	Callback = function(value)
+		Settings.AutoSuper = value
+	end,
+})
+Combat:AddToggle({
 	Text = "Auto Uppercut",
 	Description = "Fires the uppercut every 3.2s",
 	Icon = "Lucide:arrow-up",
@@ -672,6 +731,30 @@ Combat:AddToggle({
 	Flag = "ni_auto_perk",
 	Callback = function(value)
 		Settings.AutoPerkOffer = value
+	end,
+})
+
+Combat:AddToggle({
+	Text = "Auto Pick Ability",
+	Description = "Picks the selected ability offer every 2s",
+	Icon = "Lucide:sparkles",
+	Default = false,
+	Flag = "ni_auto_ability",
+	Callback = function(value)
+		Settings.AutoAbilityPick = value
+	end,
+})
+Combat:AddSlider({
+	Text = "Ability Pick Index",
+	Description = "Which ability offer to choose (1-3)",
+	Icon = "Lucide:list-ordered",
+	Min = 1,
+	Max = 3,
+	Default = 1,
+	Increment = 1,
+	Flag = "ni_ability_index",
+	Callback = function(value)
+		Settings.AbilityPickIndex = value
 	end,
 })
 
@@ -703,6 +786,31 @@ Combat:AddParagraph({
 	Text = "Uppercut (free), Hand Beam, Shadow Dash, Dodgeball, Lightning Punch, Ground Slam, Hollow Purple, Picture Perfect",
 })
 
+Farm:AddSection("Movement", "Lucide:footprints")
+Farm:AddToggle({
+	Text = "Auto Chase",
+	Description = "Walks to the nearest noob when it's out of reach",
+	Icon = "Lucide:footprints",
+	Default = false,
+	Flag = "ni_auto_chase",
+	Callback = function(value)
+		Settings.AutoChase = value
+	end,
+})
+Farm:AddSlider({
+	Text = "Chase Stop Distance",
+	Description = "Stops walking once the noob is this close",
+	Icon = "Lucide:radar",
+	Min = 3,
+	Max = 40,
+	Default = 8,
+	Increment = 1,
+	Suffix = " studs",
+	Flag = "ni_chase_stop",
+	Callback = function(value)
+		Settings.ChaseStop = value
+	end,
+})
 Farm:AddSection("Survival", "Lucide:heart")
 Farm:AddToggle({
 	Text = "Auto Revive",
@@ -828,6 +936,15 @@ task.spawn(function()
 		if Settings.AutoDash then
 			pcall(autoDashStep)
 		end
+		if Settings.AutoChase then
+			pcall(autoChaseStep)
+		end
+		if Settings.AutoSuper then
+			pcall(autoSuperStep)
+		end
+		if Settings.AutoAbilityPick then
+			pcall(autoAbilityPickStep)
+		end
 		if Settings.AutoSlash then
 			pcall(autoSlashStep)
 		end
@@ -874,6 +991,9 @@ ctx:OnCleanup(function()
 	Settings.AutoPerkOffer = false
 	Settings.NoCooldown = false
 	Settings.HitAnyDirection = false
+	Settings.AutoChase = false
+	Settings.AutoSuper = false
+	Settings.AutoAbilityPick = false
 	Settings.AutoRevive, Settings.EspNoob, Settings.EspBoss = false, false, false
 	for model, entry in pairs(espEntries) do
 		entry.Gui:Destroy()

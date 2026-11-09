@@ -194,6 +194,7 @@ local Settings = {
 	TrashPickup = false,
 	TrashRange = 12,
 	BookEsp = false,
+	AutoEscape = false,
 }
 
 ---------------------------------------------------------------------
@@ -614,6 +615,148 @@ local function trashStep()
 	if best then
 		best.Enabled = true
 		triggerPrompt(best)
+	end
+end
+
+---------------------------------------------------------------------
+-- Escape (toilet -> panel -> tunnel)
+---------------------------------------------------------------------
+
+local function getCellToilet()
+	local cellNumber = LocalPlayer:GetAttribute("AssignedCellNumber") or 13
+	local island = workspace:FindFirstChild("PrisonIsland")
+	if not island then
+		return nil
+	end
+	for _, blockName in ipairs({ "CellBlockB", "CellBlockA" }) do
+		local block = island:FindFirstChild(blockName)
+		local cell = block and block:FindFirstChild("Cell" .. tostring(cellNumber))
+		local toilet = cell and cell:FindFirstChild("Toilet")
+		if toilet then
+			return toilet
+		end
+	end
+	return nil
+end
+
+local function findTool(toolType)
+	local character = LocalPlayer.Character
+	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+	for _, container in ipairs({ character, backpack }) do
+		if container then
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("Tool") and child:GetAttribute("OJReward") == toolType then
+					return child
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function equipTool(tool)
+	if not tool then
+		return
+	end
+	local humanoid = getHumanoid()
+	if humanoid and tool.Parent ~= LocalPlayer.Character then
+		pcall(humanoid.EquipTool, humanoid, tool)
+	end
+end
+
+local nextEscapeAt = 0
+
+local function escapeStep()
+	if not actionsUnblocked() then
+		return
+	end
+	local now = os.clock()
+	if now < nextEscapeAt then
+		return
+	end
+	local toilet = getCellToilet()
+	if not toilet then
+		return
+	end
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not (myRoot and humanoid) then
+		return
+	end
+
+	-- 1. Unscrew every anchor bolt (a screwdriver must be equipped).
+	local bolt
+	for _, child in ipairs(toilet:GetChildren()) do
+		if child:IsA("BasePart") and child.Name == "AnchorBolt" and child:GetAttribute("Loose") ~= true then
+			bolt = child
+			break
+		end
+	end
+	if bolt then
+		local prompt = bolt:FindFirstChild("UnscrewPrompt")
+		if prompt and prompt:IsA("ProximityPrompt") then
+			if getToolType() ~= "Screwdriver" then
+				equipTool(findTool("Screwdriver"))
+				nextEscapeAt = now + 0.5
+				return
+			end
+			if (myRoot.Position - bolt.Position).Magnitude <= 10 then
+				prompt.Enabled = true
+				triggerPrompt(prompt)
+				nextEscapeAt = now + 1.7
+			else
+				humanoid:MoveTo(bolt.Position)
+				nextEscapeAt = now + 0.5
+			end
+		end
+		return
+	end
+
+	-- 2. Move the toilet panel aside.
+	local plate = toilet:FindFirstChild("MountingPlate")
+	local movePrompt = plate and plate:FindFirstChild("MovePanelPrompt")
+	if movePrompt and movePrompt:IsA("ProximityPrompt") and toilet:GetAttribute("PanelOpen") ~= true then
+		if (myRoot.Position - plate.Position).Magnitude <= 10 then
+			movePrompt.Enabled = true
+			triggerPrompt(movePrompt)
+			nextEscapeAt = now + 1
+		else
+			humanoid:MoveTo(plate.Position)
+			nextEscapeAt = now + 0.5
+		end
+		return
+	end
+
+	-- 3. Dig out the tunnel while holding a digging tool.
+	local toolType = getToolType()
+	if not (toolType and DIG_TOOLS[toolType]) then
+		local digTool = findTool("Drill") or findTool("Trowel") or findTool("Spoon")
+		if digTool then
+			equipTool(digTool)
+		end
+		nextEscapeAt = now + 0.5
+		return
+	end
+	local cell = toilet.Parent
+	local digCover = cell and cell:FindFirstChild("DigCover")
+	local target = digCover or toilet
+	local targetPos
+	if target:IsA("BasePart") then
+		targetPos = target.Position
+	else
+		targetPos = target:GetPivot().Position
+	end
+	local camera = workspace.CurrentCamera
+	if camera then
+		local direction = (targetPos - camera.CFrame.Position).Unit
+		if now >= nextToolAt then
+			nextToolAt = now + toolCooldown(toolType) + 0.03
+			swingCount += 1
+			local remote = getRemote("PrisonUtensilUse")
+			if remote then
+				remote:FireServer(direction, swingCount, camera.CFrame.Position)
+			end
+		end
 	end
 end
 
@@ -1082,6 +1225,18 @@ Combat:AddSlider({
 	end,
 })
 
+Escape:AddSection("Full Escape", "Lucide:map-pin")
+Escape:AddToggle({
+	Text = "Auto Escape",
+	Description = "Unscrews the toilet, opens the panel and digs the tunnel",
+	Icon = "Lucide:map-pin",
+	Default = false,
+	Flag = "13de_auto_escape",
+	Callback = function(value)
+		Settings.AutoEscape = value
+	end,
+})
+
 Escape:AddSection("Digging", "Lucide:shovel")
 Escape:AddToggle({
 	Text = "Auto Dig",
@@ -1498,6 +1653,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoEscape then
+			pcall(escapeStep)
+		end
+		task.wait(0.2)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	if Settings.SpeedBoost then
 		local humanoid = character:WaitForChild("Humanoid", 5)
@@ -1520,6 +1684,7 @@ ctx:OnCleanup(function()
 	Settings.AutoCash, Settings.AutoBooks = false, false
 	Settings.BreakCameras = false
 	Settings.TrashPickup = false
+	Settings.AutoEscape = false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

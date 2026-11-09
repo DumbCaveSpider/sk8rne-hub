@@ -24,6 +24,10 @@ local LOG_TYPES = {
 	error = Enum.MessageType.MessageError,
 }
 
+-- Tables logged through Log() are deduped and carry a traceback: a table is almost always a
+-- mistaken argument, and its identity alone is useless in the console.
+local loggedTables = {}
+
 local Session = {}
 Session.__index = Session
 
@@ -98,10 +102,20 @@ function Session:_log(message, level)
 	level = level or "info"
 	local prefix = self.Game and self.Game.Key or "Hub"
 	if type(message) == "table" then
+		local now = os.clock()
+		local last = loggedTables[message]
+		if last and now - last < 10 then
+			return
+		end
+		loggedTables[message] = now
 		local ok, encoded = pcall(function()
 			return game:GetService("HttpService"):JSONEncode(message)
 		end)
-		message = ok and encoded or tostring(message)
+		if ok then
+			message = encoded
+		else
+			message = tostring(message) .. "\n" .. debug.traceback("", 2)
+		end
 	end
 	local line = string.format("[%s] %s", prefix, tostring(message))
 

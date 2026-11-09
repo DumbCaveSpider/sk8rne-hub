@@ -77,6 +77,8 @@ local Settings = {
 	AutoKillAll = false,
 	KillRange = 60,
 	AutoDash = false,
+	AutoPickup = false,
+	PickupRange = 8,
 	AutoPerkOffer = false,
 	PerkPickIndex = 1,
 	NoCooldown = false,
@@ -453,6 +455,63 @@ local function autoChaseStep()
 		humanoid.Jump = true
 	end
 	logOnce("chase_ok", "auto chase: steering toward the nearest noob", "info")
+end
+
+local promptCache = {}
+local lastPromptScanAt = 0
+
+local function scanPrompts()
+	local now = os.clock()
+	if now - lastPromptScanAt < 2 then
+		return
+	end
+	lastPromptScanAt = now
+	local prompts = {}
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") and descendant.Enabled then
+			local parent = descendant.Parent
+			if parent and parent:IsA("BasePart") then
+				prompts[#prompts + 1] = descendant
+			end
+		end
+	end
+	promptCache = prompts
+end
+
+local nextPickupAt = 0
+local function autoPickupStep()
+	local now = os.clock()
+	if now < nextPickupAt then
+		return
+	end
+	nextPickupAt = now + 0.6
+	local myRoot = getRootPart()
+	if not myRoot then
+		return
+	end
+	scanPrompts()
+	local best, bestDistance = nil, math.huge
+	for _, prompt in ipairs(promptCache) do
+		local parent = prompt.Parent
+		if prompt.Enabled and parent and parent.Parent then
+			local distance = (parent.Position - myRoot.Position).Magnitude
+			local limit = math.min(Settings.PickupRange, prompt.MaxActivationDistance)
+			if distance <= limit and distance < bestDistance then
+				best, bestDistance = prompt, distance
+			end
+		end
+	end
+	if not best then
+		return
+	end
+	pcall(function()
+		fireproximityprompt(best)
+	end)
+	-- The prompt picks the object up; M1 throws it.
+	task.delay(0.2, function()
+		clickMouse()
+	end)
+	logOnce("pickup_ok", "auto pickup: picked up and threw an object", "info")
 end
 
 local function autoDashStep()
@@ -939,6 +998,31 @@ Combat:AddParagraph({
 	Text = "Uppercut (free), Hand Beam, Shadow Dash, Dodgeball, Lightning Punch, Ground Slam, Hollow Purple, Picture Perfect",
 })
 
+Farm:AddSection("Pickup", "Lucide:hand")
+Farm:AddToggle({
+	Text = "Auto Pickup",
+	Description = "Grabs the nearest shown ProximityPrompt and throws it with M1",
+	Icon = "Lucide:hand",
+	Default = false,
+	Flag = "ni_auto_pickup",
+	Callback = function(value)
+		Settings.AutoPickup = value
+	end,
+})
+Farm:AddSlider({
+	Text = "Pickup Range",
+	Description = "How far away prompts are picked up",
+	Icon = "Lucide:radar",
+	Min = 3,
+	Max = 30,
+	Default = 8,
+	Increment = 1,
+	Suffix = " studs",
+	Flag = "ni_pickup_range",
+	Callback = function(value)
+		Settings.PickupRange = value
+	end,
+})
 Farm:AddSection("Movement", "Lucide:footprints")
 Farm:AddToggle({
 	Text = "Auto Chase",
@@ -1100,6 +1184,9 @@ task.spawn(function()
 		if Settings.AutoDash then
 			pcall(autoDashStep)
 		end
+		if Settings.AutoPickup then
+			pcall(autoPickupStep)
+		end
 		if Settings.AutoChase then
 			pcall(autoChaseStep)
 		end
@@ -1146,6 +1233,7 @@ ctx:OnCleanup(function()
 	Settings.DebugLogs = false
 	Settings.AutoKillAll = false
 	Settings.AutoDash = false
+	Settings.AutoPickup = false
 	Settings.AutoPerkOffer = false
 	Settings.NoCooldown = false
 	Settings.HitAnyDirection = false

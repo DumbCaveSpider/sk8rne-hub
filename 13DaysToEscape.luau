@@ -553,15 +553,26 @@ local function bookStep()
 	nextBookAt = now + 0.5
 end
 
+-- Prompts often live inside an Attachment (BookPickupPoint etc.) under the real part,
+-- so walk up the tree to the BasePart that should carry the marker.
+local function nearestPart(instance)
+	local current = instance
+	while current and current ~= workspace do
+		if current:IsA("BasePart") then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
 local function promptPosition(prompt)
+	local part = nearestPart(prompt)
+	if part then
+		return part.Position
+	end
 	local parent = prompt.Parent
-	if not parent then
-		return nil
-	end
-	if parent:IsA("BasePart") then
-		return parent.Position
-	end
-	if parent:IsA("Model") then
+	if parent and parent:IsA("Model") then
 		return parent:GetPivot().Position
 	end
 	return nil
@@ -691,7 +702,7 @@ end
 local function createEsp(model, part, category)
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.fromOffset(220, 46)
-	gui.StudsOffset = Vector3.new(0, 3.2, 0)
+	gui.StudsOffset = Vector3.new(0, category == "Book" and 1.4 or 3.2, 0)
 	gui.AlwaysOnTop = true
 	gui.Adornee = part
 	gui.Parent = espFolder
@@ -721,7 +732,7 @@ local function findTargetBook()
 			and tonumber(prompt:GetAttribute("BookNumber")) == requested
 			and prompt:GetAttribute("BookReturnOnly") ~= true
 		then
-			return prompt.Parent
+			return nearestPart(prompt)
 		end
 	end
 	return nil

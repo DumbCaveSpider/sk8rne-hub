@@ -53,6 +53,17 @@ local function pressKey(keyCode)
 end
 
 local function clickMouse()
+	-- The game binds Punch through ContextActionService, and CAS ignores clicks that a
+	-- GUI consumed. Clicking wherever the cursor happens to be (often over the hub window
+	-- or the HUD) therefore fires no punch and plays no animation, so park the cursor over
+	-- bare viewport first.
+	local camera = workspace.CurrentCamera
+	local size = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	local x = 8
+	local y = math.floor(size.Y * 0.5)
+	pcall(function()
+		mousemoveabs(x, y)
+	end)
 	local ok = pcall(function()
 		mouse1click()
 	end)
@@ -61,9 +72,9 @@ local function clickMouse()
 	end
 	return pcall(function()
 		local virtualInput = game:GetService("VirtualInputManager")
-		virtualInput:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+		virtualInput:SendMouseButtonEvent(x, y, 0, true, game, 0)
 		task.wait(0.05)
-		virtualInput:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+		virtualInput:SendMouseButtonEvent(x, y, 0, false, game, 0)
 	end)
 end
 

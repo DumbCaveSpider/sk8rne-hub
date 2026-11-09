@@ -397,7 +397,7 @@ local function autoAttackStep()
 	if now < nextAttackAt then
 		return
 	end
-	nextAttackAt = now + 0.25
+	nextAttackAt = now + 0.05
 	if Settings.HitAnyDirection then
 		faceNearestNoob()
 	end
@@ -1399,6 +1399,17 @@ task.spawn(function()
 	end
 end)
 
+-- Auto Attack has its own tight loop so it can spam M1 continuously instead of being
+-- limited by the 0.1s cadence of the shared feature loop.
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoAttack then
+			pcall(autoAttackStep)
+		end
+		task.wait(0.05)
+	end
+end)
+
 task.spawn(function()
 	while ctx:Alive() do
 		if Settings.SpeedOn then
@@ -1431,9 +1442,6 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
-		if Settings.AutoAttack then
-			pcall(autoAttackStep)
-		end
 		if Settings.AutoKillAll then
 			pcall(autoKillAllStep)
 		end

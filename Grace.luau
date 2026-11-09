@@ -306,7 +306,7 @@ local function doorPartOf(instance)
 		if child and child:IsA("BasePart") then
 			return child
 		end
-		return instance.PrimaryPart
+		return instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
 	end
 	return nil
 end
@@ -316,29 +316,39 @@ local function nearestDoor()
 	if not myRoot then
 		return nil
 	end
-	local best, bestDistance = nil, math.huge
+	local best, bestDistance, bestKind = nil, math.huge, nil
 	local seen = {}
+	local function consider(instance, kind)
+		local part = doorPartOf(instance)
+		if not part or seen[part] then
+			return
+		end
+		seen[part] = true
+		-- A door that is already open has been passed, so skip it.
+		if part:GetAttribute("Open") == true then
+			return
+		end
+		local distance = (part.Position - myRoot.Position).Magnitude
+		if distance < bestDistance then
+			best, bestDistance, bestKind = part, distance, kind
+		end
+	end
 	for _, folderName in ipairs({ "Rooms", "SideRooms" }) do
 		local folder = workspace:FindFirstChild(folderName)
 		if folder then
 			for _, descendant in ipairs(folder:GetDescendants()) do
+				-- Regular doors plus the saferoom vault entrance/door.
 				if descendant.Name == "Door" then
-					local part = doorPartOf(descendant)
-					if part and not seen[part] then
-						seen[part] = true
-						-- A door that is already open has been passed, so skip it.
-						if part:GetAttribute("Open") ~= true then
-							local distance = (part.Position - myRoot.Position).Magnitude
-							if distance < bestDistance then
-								best, bestDistance = part, distance
-							end
-						end
-					end
+					consider(descendant, "DOOR")
+				elseif descendant.Name == "VaultEntrance" then
+					consider(descendant, "VAULT ENTRANCE")
+				elseif descendant.Name == "VaultDoor" then
+					consider(descendant, "VAULT DOOR")
 				end
 			end
 		end
 	end
-	return best, bestDistance
+	return best, bestDistance, bestKind
 end
 
 local function removeWaypoint()
@@ -377,7 +387,7 @@ local function ensureWaypoint()
 end
 
 local function waypointStep()
-	local doorPart, distance = nearestDoor()
+	local doorPart, distance, kind = nearestDoor()
 	if not doorPart then
 		removeWaypoint()
 		logOnce("waypoint_none", "door waypoint: no unopened door found (cleared)", "info")
@@ -386,7 +396,7 @@ local function waypointStep()
 	logOnce("waypoint_found", "door waypoint: targeting " .. doorPart:GetFullName(), "info")
 	ensureWaypoint()
 	waypointGui.Adornee = doorPart
-	waypointLabel.Text = string.format("DOOR\n%d studs", math.floor(distance))
+	waypointLabel.Text = string.format("%s\n%d studs", kind or "DOOR", math.floor(distance))
 	if waypointAdornee ~= doorPart then
 		if waypointHighlight then
 			waypointHighlight:Destroy()

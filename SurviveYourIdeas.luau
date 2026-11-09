@@ -556,23 +556,61 @@ task.spawn(function()
 	ctx:Log("[SYI] Items.Remotes: " .. names(itemsRemotes), "info")
 end)
 
--- Worst disasters, taken from the game's own DiaryCatalog.
-local WORST_DISASTERS = {
-	"tsunami", "lava", "meteor", "tornado", "lightning", "earthquake", "bomb", "volcano",
-	"acid", "black_hole", "heat", "snow", "alien", "dragon", "spider", "snake",
-	"invisible", "oof", "zombie", "dinosaur", "monster", "clown", "giant", "shark",
-	"bees", "ghost", "laser", "storm", "ice", "delete", "shrink", "hunger",
+-- Every word in the game's DiaryCatalog (416 entries).
+local ALL_DISASTERS = {
+	"delete", "shrink", "tsunami", "fire", "zombie", "lava", "meteor", "tornado", "lightning", "storm",
+	"earthquake", "bomb", "ice", "volcano", "shark", "ghost", "bees", "dinosaur", "monster", "kill",
+	"clown", "rain", "wind", "giant", "gravity", "speed", "jump", "night", "fog", "acid",
+	"laser", "black_hole", "heat", "snow", "alien", "dragon", "spider", "snake", "invisible", "fly",
+	"teleport", "swap", "building", "city", "tree", "wall", "oof", "sky_letter", "tacos", "dance",
+	"money", "cat", "dog", "chair", "robot", "banana", "jail", "magnet", "food", "hunger",
+	"ban", "train", "boulder", "fart", "pirate", "bubble", "darkclone", "wizard", "fireworks", "king",
+	"cow", "octopus", "jackbox", "circus", "frog", "worm", "slime", "medkit", "size", "shield",
+	"gift", "conveyor", "launchpad", "zone", "pendulum", "dominoes", "sneeze", "sleep", "revive", "safehouse",
+	"star", "peace", "helicopter", "house", "bed", "picnic", "ladder", "tower", "flowers", "mansion",
+	"computer", "flood", "dry", "enxurrada", "epidemia", "gun", "melee", "ball", "box", "chicken",
+	"mountain", "day", "hail", "umbrella", "chest", "car", "igloo", "sandstorm", "fountain", "anvil",
+	"duck", "halloween", "pumpkin", "water", "hi", "love", "pig", "monkey", "bear", "lion",
+	"wolf", "skeleton", "fish", "spikes", "quicksand", "tank", "airstrike", "nuke", "plane", "landmine",
+	"saw", "cactus", "vampire", "devil", "angel", "slow", "dizzy", "mud", "oil", "glue",
+	"heaven", "sky", "hell", "apocalypse", "nothing", "parachute", "table", "door", "lamp", "tv",
+	"bridge", "island", "beach", "maze", "kite", "penguin", "crab", "rabbit", "rat", "crocodile",
+	"ant", "mosquito", "unicorn", "werewolf", "mummy", "ninja", "santa", "whale", "bike", "bus",
+	"67", "skibidi", "sigma", "bruh", "castle", "pyramid", "lighthouse", "barn", "treehouse", "playground",
+	"church", "camping", "school", "windmill", "stadium", "jenga", "bouncycastle", "supermarket", "backrooms", "ferriswheel",
+	"temple", "skatepark", "aquarium", "carousel", "gasstation", "hospital", "snowman", "cave", "museum", "stonehenge",
+	"moai", "waterslide", "cinema", "basketball", "sandcastle", "minecraft", "gojo", "energy_blast", "time_stop", "domain",
+	"snap", "falling_blocks", "ogre", "capybara", "hamster_ball", "troll", "bonk", "nokia", "error", "lucky_block",
+	"animatronic", "verity", "moodeng", "diamond", "guest", "geyser", "upside_down", "nextbot", "walk", "spin",
+	"laugh", "scream", "gg", "wow", "sorry", "please", "die", "fall", "push", "cry",
+	"ok", "crazy", "what", "ez", "idk", "person", "angry", "win", "sit", "quiet",
+	"reset", "afk", "idle", "paint", "mom", "up", "space", "button", "easter", "vomit",
+	"ballerina", "chimpanzini", "firetruck", "firefighter", "piano", "cockroach", "elephant", "goose", "waterfall", "tung",
+	"tralalero", "mrbeast", "book", "grass", "lego", "balloons", "cones", "tires", "sandbags", "bamboo",
+	"clear", "retro", "desert", "christmas", "autumn", "graveyard", "farm", "neon", "swamp", "hat",
+	"stairs", "jellyfish", "bowling", "trash", "jungle", "savanna", "western", "paper", "underwater", "prehistoric",
+	"tundra", "matrix", "dream", "upside", "kitchen", "bathtub", "sheep", "satellite", "hypergamy", "scarecrow",
+	"bush", "gnome", "greenhouse", "pinata", "fireflies", "confetti", "raft", "boat", "beanstalk", "fairy",
+	"leprechaun", "zipline", "icecreamtruck", "rollercoaster", "gokart", "treasure", "teacups", "oasis", "festajunina", "churrasco",
+	"pillows", "sunset", "naruto", "rasengan", "kaioken", "tanjiro", "bankai", "luffy", "saitama", "nani",
+	"patapim", "lirili", "trippi", "sans", "pikachu", "btools", "sussy", "rizz", "chillguy", "siuuu",
+	"neymar", "ohio", "herobrine", "spiderman", "sharingan", "nyan", "brookhaven", "roadroller", "arise", "rumbling",
+	"supernova", "locust", "poo", "skinwalker", "normal", "me", "baby", "aura", "end", "horror",
+	"scp", "hero", "dad", "doctor", "kingkong", "sirenhead", "slenderman", "deathnote", "seek", "reaper",
+	"titanic", "zoo", "exit", "jesus", "roblox", "obby", "mahoraga", "doom", "godzilla", "noob",
+	"fortnite", "hulk", "titan", "goku", "sonic", "superman", "ironman", "homelander", "god", "sukuna",
+	"moon", "destruction", "chaos", "blind", "admin", "boss",
 }
 
-local function randomWorstDisaster()
-	return WORST_DISASTERS[math.random(1, #WORST_DISASTERS)]
+local function randomDisaster()
+	return ALL_DISASTERS[math.random(1, #ALL_DISASTERS)]
 end
 
 local nextWriteAt = 0
 local function autoWriteStep()
 	local word
 	if Settings.AutoWriteWorst then
-		word = randomWorstDisaster()
+		word = randomDisaster()
 	else
 		word = Settings.WriteWord
 	end
@@ -891,9 +929,9 @@ Words:AddToggle({
 	end,
 })
 Words:AddToggle({
-	Text = "Always Worst Disaster",
-	Description = "Randomly writes the worst disasters from the list",
-	Icon = "Lucide:skull",
+	Text = "Random Diary Word",
+	Description = "Writes a random word from every DiaryCatalog entry",
+	Icon = "Lucide:shuffle",
 	Default = false,
 	Flag = "syi_write_worst",
 	Callback = function(value)

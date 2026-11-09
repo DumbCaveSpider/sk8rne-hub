@@ -665,7 +665,7 @@ eventTitle.Font = Enum.Font.GothamBold
 eventTitle.TextSize = 15
 eventTitle.TextXAlignment = Enum.TextXAlignment.Left
 eventTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-eventTitle.Text = "ACTIVE ENTITIES"
+eventTitle.Text = "ACTIVE MODIFIERS"
 eventTitle.Parent = eventFrame
 
 local eventBody = Instance.new("TextLabel")
@@ -678,45 +678,26 @@ eventBody.TextSize = 13
 eventBody.TextXAlignment = Enum.TextXAlignment.Left
 eventBody.TextYAlignment = Enum.TextYAlignment.Top
 eventBody.TextWrapped = true
+eventBody.RichText = true
 eventBody.TextColor3 = Color3.fromRGB(200, 200, 210)
 eventBody.Text = ""
 eventBody.Parent = eventFrame
-
-local function activeEntities()
-	local active = {}
-	for _, model in ipairs(workspace:GetChildren()) do
-		if model:IsA("Model") and entityInfo(model.Name) then
-			table.insert(active, model.Name)
-		end
-	end
-	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-	if playerGui then
-		for _, child in ipairs(playerGui:GetChildren()) do
-			if entityInfo(child.Name) then
-				table.insert(active, child.Name)
-			end
-		end
-	end
-	return active
-end
 
 local function modifierFolder()
 	local modifiers = ReplicatedStorage:FindFirstChild("Modifiers")
 	return modifiers and modifiers:FindFirstChild("Modifiers")
 end
 
-local function modifierLine(name)
+local function modifierInfo(name)
 	local folder = modifierFolder()
 	local instance = folder and folder:FindFirstChild(name, true)
 	if not instance then
-		return name
+		return name, nil, 0
 	end
 	local display = instance:GetAttribute("Name") or name
 	local desc = instance:GetAttribute("Desc")
-	if type(desc) == "string" and desc ~= "" then
-		return display .. " — " .. desc
-	end
-	return display
+	local reward = tonumber(instance:GetAttribute("Reward")) or 0
+	return display, desc, reward
 end
 
 -- Votes are applied as attributes on workspace.Game.Modifier.
@@ -745,16 +726,18 @@ local function eventStep()
 	end
 	local lines = {}
 	for _, name in ipairs(activeModifiers()) do
-		table.insert(lines, "• " .. modifierLine(name))
-	end
-	for _, name in ipairs(activeEntities()) do
-		local info = entityInfo(name)
-		if info then
-			table.insert(lines, "• " .. info.Title .. " — " .. info.Counter)
+		local display, desc, reward = modifierInfo(name)
+		-- Yellow = increased multiplier, red = reduced multiplier.
+		local color = reward > 0 and "#FFD700" or (reward < 0 and "#FF4444" or "#C8C8D2")
+		local text = display
+		if type(desc) == "string" and desc ~= "" then
+			text = text .. " — " .. desc
 		end
+		text = text .. string.format(" (%+.2f)", reward)
+		table.insert(lines, string.format('<font color="%s">• %s</font>', color, text))
 	end
 	if #lines == 0 then
-		lines = { "No active modifiers or entities" }
+		lines = { '<font color="#C8C8D2">No active modifiers</font>' }
 	end
 	eventFrame.Visible = true
 	eventBody.Text = table.concat(lines, "\n")
@@ -762,7 +745,7 @@ local function eventStep()
 	local key = table.concat(lines, "\n")
 	if key ~= lastEventKey then
 		lastEventKey = key
-		ctx:Log("[GRACE] entities: " .. #lines .. " active", "info")
+		ctx:Log("[GRACE] modifiers: " .. #lines .. " active", "info")
 	end
 end
 

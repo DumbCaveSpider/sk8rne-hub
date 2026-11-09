@@ -4,6 +4,7 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -448,9 +449,31 @@ local function autoDashStep()
 	end
 	direction = direction.Unit
 	local before = myRoot.Position
+	-- The game dashes with a LinearVelocity constraint (140 studs/s decaying over 0.3s),
+	-- so setting AssemblyLinearVelocity alone gets overridden by the humanoid controller.
 	pcall(function()
-		myRoot.AssemblyLinearVelocity = direction * 65 + Vector3.new(0, 10, 0)
-		myRoot.AssemblyAngularVelocity = Vector3.zero
+		myRoot.CFrame = CFrame.lookAt(myRoot.Position, myRoot.Position + direction)
+	end)
+	pcall(function()
+		local attachment = myRoot:FindFirstChild("RootAttachment") or Instance.new("Attachment", myRoot)
+		local linear = Instance.new("LinearVelocity")
+		linear.Attachment0 = attachment
+		linear.RelativeTo = Enum.ActuatorRelativeTo.World
+		linear.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+		linear.MaxAxesForce = Vector3.new(1000000, 0, 1000000)
+		linear.VectorVelocity = direction * 140
+		linear.Parent = myRoot
+		local startedAt = os.clock()
+		local connection
+		connection = RunService.Heartbeat:Connect(function()
+			local t = (os.clock() - startedAt) / 0.3
+			if t >= 1 or not linear.Parent or not myRoot.Parent then
+				connection:Disconnect()
+				linear:Destroy()
+				return
+			end
+			linear.VectorVelocity = direction * (35 + 105 * (1 - t) ^ 2)
+		end)
 	end)
 	fireRemote("Attack", "dash")
 	task.delay(0.35, function()

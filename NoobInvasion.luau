@@ -94,6 +94,12 @@ local function setSprint(down)
 	end
 end
 
+local function set3DRendering(renderingEnabled)
+	pcall(function()
+		game:GetService("RunService"):Set3dRenderingEnabled(renderingEnabled)
+	end)
+end
+
 -- Close the game's choice frame; firing the remote alone leaves the UI on screen.
 local function closeChoiceFrame(frameName)
 	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -124,6 +130,7 @@ local Settings = {
 	DashOnlyWithEnemies = false,
 	LowHpRetreat = false,
 	LowHpThreshold = 35,
+	Disable3D = false,
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
@@ -1059,6 +1066,19 @@ Combat:AddToggle({
 	end,
 })
 
+Farm:AddSection("Performance", "Lucide:monitor-off")
+Farm:AddToggle({
+	Text = "Disable 3D Rendering",
+	Description = "Turns off 3D rendering to save resources while auto killing",
+	Icon = "Lucide:monitor-off",
+	Default = false,
+	Flag = "ni_disable_3d",
+	Callback = function(value)
+		Settings.Disable3D = value
+		set3DRendering(not value)
+	end,
+})
+
 Farm:AddSection("Pickup", "Lucide:hand")
 Farm:AddToggle({
 	Text = "Auto Pickup",
@@ -1275,6 +1295,8 @@ ctx:OnCleanup(function()
 	Settings.AutoDash = false
 	Settings.DashOnlyWithEnemies = false
 	Settings.LowHpRetreat = false
+	Settings.Disable3D = false
+	set3DRendering(true)
 	Settings.AutoPickup = false
 	Settings.AutoPerkOffer = false
 	Settings.HitAnyDirection = false

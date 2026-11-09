@@ -66,6 +66,21 @@ local function clickMouse()
 	end)
 end
 
+-- Close the game's choice frame; firing the remote alone leaves the UI on screen.
+local function closeChoiceFrame(frameName)
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	local hud = playerGui and playerGui:FindFirstChild("HUD")
+	local frame = hud and hud:FindFirstChild(frameName, true)
+	if frame then
+		pcall(function()
+			frame.Visible = false
+			frame:Destroy()
+		end)
+		return true
+	end
+	return false
+end
+
 local Settings = {
 	SpeedOn = false,
 	Speed = 30,
@@ -80,7 +95,6 @@ local Settings = {
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
-	PerkPickIndex = 1,
 	NoCooldown = false,
 	HitAnyDirection = false,
 	AutoChase = false,
@@ -88,7 +102,6 @@ local Settings = {
 	ChaseSpeed = 30,
 	AutoSuper = false,
 	AutoAbilityPick = false,
-	AbilityPickIndex = 1,
 	AutoAbility = false,
 	DebugLogs = false,
 	AutoMove = false,
@@ -547,18 +560,23 @@ task.spawn(function()
 		return
 	end
 	ctx:Connect(perkRemote.OnClientEvent, function(offer)
-		logOnce("perk_offer_seen", "perk offer received from the server", "info")
+		logOnce("perk_offer_seen", "perk offer received from the server: " .. tostring(offer), "info")
 		if not Settings.AutoPerkOffer then
 			return
 		end
-		local pick = Settings.PerkPickIndex or 1
-		local choice
+		-- The offer can be a plain string or a table of choices; use the first one.
+		local choice = offer
 		if type(offer) == "table" then
-			choice = offer[pick] or offer[1]
+			choice = offer[1]
 		end
-		choice = choice or pick
+		if choice == nil then
+			return
+		end
 		pcall(function()
 			perkRemote:FireServer(choice)
+		end)
+		task.delay(0.1, function()
+			closeChoiceFrame("PerkChoice")
 		end)
 		ctx:Log("[NI] auto perk: picked " .. tostring(choice), "info")
 	end)
@@ -601,6 +619,9 @@ task.spawn(function()
 		-- The game's choice UI sends a boolean: true accepts the offered ability.
 		pcall(function()
 			offerRemote:FireServer(true)
+		end)
+		task.delay(0.1, function()
+			closeChoiceFrame("AbilityChoice")
 		end)
 		ctx:Log("[NI] auto ability pick: accepted " .. tostring(offer), "info")
 	end)
@@ -737,20 +758,6 @@ local function autoReviveStep()
 	end
 	fireRemote("Life", "again")
 	logOnce("revive_ok", "auto revive: asking to play again", "info")
-end
-
----------------------------------------------------------------------
--- Shop
----------------------------------------------------------------------
-
-local function buyMove(moveId)
-	fireRemote("MoveShop", "buy", moveId)
-	logOnce("buy_" .. moveId, "shop: buying " .. moveId, "info")
-end
-
-local function equipMove(moveId)
-	fireRemote("MoveShop", "equip", moveId)
-	logOnce("equip_" .. moveId, "shop: equipping " .. moveId, "info")
 end
 
 ---------------------------------------------------------------------
@@ -932,19 +939,6 @@ Combat:AddToggle({
 		Settings.AutoPerkOffer = value
 	end,
 })
-Combat:AddSlider({
-	Text = "Perk Pick Index",
-	Description = "Which offered perk to choose (1-3)",
-	Icon = "Lucide:list-ordered",
-	Min = 1,
-	Max = 3,
-	Default = 1,
-	Increment = 1,
-	Flag = "ni_perk_index",
-	Callback = function(value)
-		Settings.PerkPickIndex = value
-	end,
-})
 
 Combat:AddToggle({
 	Text = "Auto Pick Ability",
@@ -954,19 +948,6 @@ Combat:AddToggle({
 	Flag = "ni_auto_ability",
 	Callback = function(value)
 		Settings.AutoAbilityPick = value
-	end,
-})
-Combat:AddSlider({
-	Text = "Ability Pick Index",
-	Description = "Which ability offer to choose (1-3)",
-	Icon = "Lucide:list-ordered",
-	Min = 1,
-	Max = 3,
-	Default = 1,
-	Increment = 1,
-	Flag = "ni_ability_index",
-	Callback = function(value)
-		Settings.AbilityPickIndex = value
 	end,
 })
 
@@ -1059,34 +1040,9 @@ Farm:AddToggle({
 		Settings.AutoRevive = value
 	end,
 })
-Farm:AddSection("Shop", "Lucide:shopping-cart")
-local buyDropdown = Farm:AddDropdown({
-	Text = "Move",
-	Description = "Which move to buy or equip",
-	Icon = "Lucide:list",
-	Options = moveNames,
-	Default = "Uppercut",
-	Flag = "ni_shop_move",
-	Callback = function() end,
-})
-Farm:AddButton({
-	Text = "Buy Move",
-	Description = "Fire MoveShop buy for the selected move",
-	Icon = "Lucide:shopping-cart",
-	Callback = function()
-		buyMove(moveNameToId[buyDropdown:Get()] or "Uppercut")
-	end,
-})
-Farm:AddButton({
-	Text = "Equip Move",
-	Description = "Fire MoveShop equip for the selected move",
-	Icon = "Lucide:check",
-	Callback = function()
-		equipMove(moveNameToId[buyDropdown:Get()] or "Uppercut")
-	end,
-})
 
-Visuals:AddSection("ESP", "Lucide:eye")Visuals:AddToggle({
+Visuals:AddSection("ESP", "Lucide:eye")
+Visuals:AddToggle({
 	Text = "Noob ESP",
 	Description = "Highlights every noob with health and distance",
 	Icon = "Lucide:users",

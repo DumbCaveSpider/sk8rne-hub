@@ -612,6 +612,11 @@ local function buildHubSettings(session, Games)
 		Text = session.Game and ("Running in " .. session.Game.Name .. ".")
 			or "This game isn't supported, so only the hub tabs are available.",
 	})
+	About:AddParagraph({
+		Title = "Commit",
+		Icon = "Lucide:git-commit-horizontal",
+		Text = tostring(session.Hub.Commit or session.Hub.Version or "unknown"),
+	})
 
 	About:AddSection("Changelog", "Lucide:history")
 	About:AddChangelogEntry({

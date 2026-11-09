@@ -106,6 +106,32 @@ local Window = VindUI:CreateWindow({
 	ToggleKeybind = false, -- Handled by the rebindable key in Hub Settings
 })
 
+-- The About tab shows the exact build, so replace the version with the newest commit SHA.
+local function fetchCommit()
+	local endpoints = {
+		"https://api.github.com/repos/DumbCaveSpider/sk8rne-hub/commits?per_page=1",
+		"https://api.github.com/repos/DumbCaveSpider/sk8rne-hub/git/refs/heads/main",
+	}
+	for _, url in ipairs(endpoints) do
+		local ok, body = pcall(function()
+			return game:HttpGet(url)
+		end)
+		if ok and type(body) == "string" then
+			local sha = body:match('"sha"%s*:%s*"([0-9a-f]+)"')
+			if sha then
+				return sha
+			end
+		end
+	end
+	return nil
+end
+
+do
+	local commit = fetchCommit()
+	HUB.Commit = commit or "unknown"
+	HUB.Version = commit and string.sub(commit, 1, 7) or "unknown"
+end
+
 local session = Session.new(HUB, VindUI, Window, gameDef)
 genv.__Sk8rneHub = session
 

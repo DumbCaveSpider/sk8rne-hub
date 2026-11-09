@@ -103,8 +103,6 @@ local Settings = {
 	AutoAbilityPick = false,
 	AutoAbility = false,
 	DebugLogs = false,
-	AutoMove = false,
-	MoveId = "Beam",
 	AutoRevive = false,
 	EspNoob = false,
 	EspBoss = false,
@@ -712,34 +710,6 @@ local function debugStep()
 	)
 end
 
-local MOVE_LIST = {
-	{ id = "Uppercut", name = "Uppercut" },
-	{ id = "Beam", name = "Hand Beam" },
-	{ id = "Shadow", name = "Shadow Dash" },
-	{ id = "Dodgeball", name = "Dodgeball" },
-	{ id = "Lightning", name = "Lightning Punch" },
-	{ id = "Quake", name = "Ground Slam" },
-	{ id = "Purple", name = "Hollow Purple" },
-	{ id = "Picture", name = "Picture Perfect" },
-}
-local moveNameToId = {}
-local moveNames = {}
-for _, move in ipairs(MOVE_LIST) do
-	table.insert(moveNames, move.name)
-	moveNameToId[move.name] = move.id
-end
-
-local nextMoveAt = 0
-local function autoMoveStep()
-	local now = os.clock()
-	if now < nextMoveAt then
-		return
-	end
-	nextMoveAt = now + 2
-	fireRemote("Attack", Settings.MoveId)
-	logOnce("move_ok", "auto move: using " .. Settings.MoveId, "info")
-end
-
 ---------------------------------------------------------------------
 -- Farm
 ---------------------------------------------------------------------
@@ -940,34 +910,6 @@ Combat:AddToggle({
 	end,
 })
 
-Combat:AddSection("Moves", "Lucide:sparkles")
-Combat:AddToggle({
-	Text = "Auto Move",
-	Description = "Fires the selected move every 2s",
-	Icon = "Lucide:zap",
-	Default = false,
-	Flag = "ni_auto_move",
-	Callback = function(value)
-		Settings.AutoMove = value
-	end,
-})
-Combat:AddDropdown({
-	Text = "Move",
-	Description = "Which move to fire",
-	Icon = "Lucide:list",
-	Options = moveNames,
-	Default = "Hand Beam",
-	Flag = "ni_move",
-	Callback = function(value)
-		Settings.MoveId = moveNameToId[value] or "Beam"
-	end,
-})
-Combat:AddParagraph({
-	Title = "Move list",
-	Icon = "Lucide:list",
-	Text = "Uppercut (free), Hand Beam, Shadow Dash, Dodgeball, Lightning Punch, Ground Slam, Hollow Purple, Picture Perfect",
-})
-
 Farm:AddSection("Pickup", "Lucide:hand")
 Farm:AddToggle({
 	Text = "Auto Pickup",
@@ -1144,9 +1086,6 @@ task.spawn(function()
 		if Settings.DebugLogs then
 			pcall(debugStep)
 		end
-		if Settings.AutoMove then
-			pcall(autoMoveStep)
-		end
 		if Settings.AutoRevive then
 			pcall(autoReviveStep)
 		end
@@ -1174,7 +1113,7 @@ end)
 ctx:OnCleanup(function()
 	Settings.SpeedOn, Settings.JumpOn = false, false
 	Settings.InfiniteJump, Settings.Godmode = false, false
-	Settings.AutoAttack, Settings.AutoAbility, Settings.AutoMove = false, false, false
+	Settings.AutoAttack, Settings.AutoAbility = false, false
 	Settings.DebugLogs = false
 	Settings.AutoKillAll = false
 	Settings.AutoDash = false

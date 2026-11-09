@@ -609,10 +609,17 @@ local function randomDisaster()
 	return ALL_DISASTERS[math.random(1, #ALL_DISASTERS)]
 end
 
+-- Mastery words from ReplicatedStorage.Mastery.MasteryConfig.
+local MASTERY_WORDS = { "tornado", "tsunami", "nuke", "black_hole", "monster", "dinosaur", "gojo", "hero", "earthquake", "kill" }
+local masteryIndex = 0
+
 local nextWriteAt = 0
 local function autoWriteStep()
 	local word
-	if Settings.AutoWriteWorst then
+	if Settings.AutoMastery then
+		masteryIndex = masteryIndex % #MASTERY_WORDS + 1
+		word = MASTERY_WORDS[masteryIndex]
+	elseif Settings.AutoWriteWorst then
 		word = randomDisaster()
 	else
 		word = Settings.WriteWord
@@ -634,30 +641,6 @@ local function autoWriteStep()
 		remote:FireServer(word)
 	end)
 	logOnce("write_word_" .. word, "auto write -> " .. word, "info")
-end
-
--- Mastery words from ReplicatedStorage.Mastery.MasteryConfig.
-local MASTERY_WORDS = { "tornado", "tsunami", "nuke", "black_hole", "monster", "dinosaur", "gojo", "hero", "earthquake", "kill" }
-local masteryIndex = 0
-local nextMasteryAt = 0
-
-local function autoMasteryStep()
-	local now = os.clock()
-	if now < nextMasteryAt then
-		return
-	end
-	nextMasteryAt = now + 1.5
-	masteryIndex = masteryIndex % #MASTERY_WORDS + 1
-	local word = MASTERY_WORDS[masteryIndex]
-	local remote = findWriteRemote()
-	if not remote then
-		logOnce("mastery_nomote", "auto mastery: no writer submit remote found", "warn")
-		return
-	end
-	pcall(function()
-		remote:FireServer(word)
-	end)
-	logOnce("mastery_word_" .. word, string.format("auto mastery: writing %s (%d/%d)", word, masteryIndex, #MASTERY_WORDS), "info")
 end
 
 local nextStruggleAt = 0
@@ -1248,11 +1231,8 @@ task.spawn(function()
 		if Settings.AutoStruggle then
 			pcall(autoStruggleStep)
 		end
-		if Settings.AutoWrite then
+		if Settings.AutoWrite or Settings.AutoMastery then
 			pcall(autoWriteStep)
-		end
-		if Settings.AutoMastery then
-			pcall(autoMasteryStep)
 		end
 		task.wait(0.05)
 	end

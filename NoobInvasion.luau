@@ -131,6 +131,7 @@ local Settings = {
 	LowHpRetreat = false,
 	LowHpThreshold = 35,
 	Disable3D = false,
+	ClassPick = "Speedster",
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
@@ -1028,6 +1029,47 @@ Player:AddButton({
 		end
 		humanoid:MoveTo(waveWaypoint)
 		ctx:Log("[NI] walking to the wave waypoint", "info")
+	end,
+})
+
+local CLASS_LIST = { "Speedster", "Berserker", "Medic", "Vampire", "Juggernaut", "Guardian", "Bomber", "Showman" }
+
+local function selectClass(className)
+	local classShop = ReplicatedStorage:FindFirstChild("ClassShop")
+	if not (classShop and (classShop:IsA("RemoteFunction") or classShop:IsA("RemoteEvent"))) then
+		logOnce("class_missing", "class shop not available here (usually lobby only)", "warn")
+		return false
+	end
+	pcall(function()
+		if classShop:IsA("RemoteFunction") then
+			classShop:InvokeServer(className)
+		else
+			classShop:FireServer(className)
+		end
+	end)
+	ctx:Log("[NI] class selected: " .. className, "info")
+	return true
+end
+
+Player:AddSection("Class", "Lucide:users")
+Player:AddDropdown({
+	Text = "Class",
+	Description = "Selects the class through the game's class shop",
+	Icon = "Lucide:users",
+	Options = CLASS_LIST,
+	Default = "Speedster",
+	Flag = "ni_class",
+	Callback = function(value)
+		Settings.ClassPick = value
+		selectClass(value)
+	end,
+})
+Player:AddButton({
+	Text = "Select Class Now",
+	Description = "Re-sends the chosen class to the shop",
+	Icon = "Lucide:check",
+	Callback = function()
+		selectClass(Settings.ClassPick)
 	end,
 })
 

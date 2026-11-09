@@ -595,6 +595,47 @@ local function buildHubSettings(session, Games)
 		end,
 	})
 
+	General:AddSection("Updates", "Lucide:refresh-cw")
+	General:AddButton({
+		Text = "Clear Cache & Reload",
+		Description = "Re-downloads the hub and restarts the script with a fresh cache",
+		Icon = "Lucide:refresh-cw",
+		Callback = function()
+			VindUI:Confirm({
+				Window = Window,
+				Title = "Clear cache and reload?",
+				Text = "The hub closes, re-downloads every file from GitHub, then reopens.",
+				ConfirmText = "Reload",
+				CancelText = "Cancel",
+				Callback = function(confirmed)
+					if not confirmed then
+						return
+					end
+					local genv = (getgenv and getgenv()) or _G
+					local loaderUrl = "https://raw.githubusercontent.com/DumbCaveSpider/sk8rne-hub/refs/heads/main/main.lua?t="
+					local ok, source = pcall(function()
+						return game:HttpGet(loaderUrl .. tostring(os.time()))
+					end)
+					if not (ok and type(source) == "string" and source ~= "" and string.sub(source, 1, 1) ~= "<") then
+						session.Notify("Could not download the loader: " .. tostring(source), "error")
+						return
+					end
+					local chunk, compileError = loadstring(source, "=Sk8rne/main.lua")
+					if not chunk then
+						session.Notify("Loader failed to compile: " .. tostring(compileError), "error")
+						return
+					end
+					genv.__Sk8rneHub = nil
+					genv.__Sk8rneHubRun = nil
+					session:Destroy()
+					task.defer(function()
+						pcall(chunk)
+					end)
+				end,
+			})
+		end,
+	})
+
 	General:AddSection("Session", "Lucide:power")
 	General:AddButton({
 		Text = "Unload Hub",

@@ -49,39 +49,74 @@ end
 
 ctx:Log("[GRACE] module loaded", "info")
 
+-- Feedback: log successful counters, deaths and the end of the run.
+task.spawn(function()
+	local parryRemote = ReplicatedStorage:WaitForChild("ClientParryAttempt", 10)
+	local response = parryRemote and parryRemote:FindFirstChild("Response")
+	if response and response:IsA("BindableEvent") then
+		ctx:Connect(response.Event, function(name)
+			ctx:Log("[GRACE] countered " .. tostring(name), "info")
+		end)
+	end
+end)
+
+ctx:Connect(LocalPlayer:GetAttributeChangedSignal("Dead"), function()
+	if LocalPlayer:GetAttribute("Dead") then
+		ctx:Log("[GRACE] you died", "warn")
+	end
+end)
+if LocalPlayer:GetAttribute("Dead") then
+	ctx:Log("[GRACE] you are already dead", "warn")
+end
+
+task.spawn(function()
+	local timer = workspace:WaitForChild("DEATHTIMER", 10)
+	if not timer then
+		return
+	end
+	local logged = false
+	ctx:Connect(timer.Changed, function(value)
+		local number = tonumber(value)
+		if not logged and number and number <= 0 then
+			logged = true
+			ctx:Log("[GRACE] game over — the timer ran out", "warn")
+		end
+	end)
+end)
+
 -- Every entity we can recognise, plus how to counter it. Keyed by lowercase name.
 local ENTITY_INFO = {
-	covet = { Title = "COVET", Counter = "Parry when it reaches you", Color = Color3.fromRGB(255, 80, 80) },
-	acovet = { Title = "COVET (bound)", Counter = "Parry when it reaches you", Color = Color3.fromRGB(255, 80, 80) },
-	sundial = { Title = "SUNDIAL", Counter = "Look up and parry", Color = Color3.fromRGB(255, 200, 80) },
-	sundialt = { Title = "SUNDIAL (bound)", Counter = "Look up and parry", Color = Color3.fromRGB(255, 200, 80) },
-	seesay = { Title = "SEESAY", Counter = "Look at it and parry", Color = Color3.fromRGB(150, 120, 255) },
-	innego = { Title = "INNEGO", Counter = "Keep moving", Color = Color3.fromRGB(120, 220, 255) },
-	innegot = { Title = "INNEGO (bound)", Counter = "Keep moving", Color = Color3.fromRGB(120, 220, 255) },
-	stemui = { Title = "STEM", Counter = "Keep moving", Color = Color3.fromRGB(120, 255, 160) },
-	doppel = { Title = "DOPPEL", Counter = "Don't trust it", Color = Color3.fromRGB(200, 200, 200) },
-	bdoppel = { Title = "DOPPEL", Counter = "Don't trust it", Color = Color3.fromRGB(200, 200, 200) },
-	pulseui = { Title = "IRE", Counter = "Stay on the ground", Color = Color3.fromRGB(255, 120, 255) },
-	fool = { Title = "FOOL", Counter = "Parry it", Color = Color3.fromRGB(255, 160, 120) },
-	craven = { Title = "CRAVEN", Counter = "Parry it", Color = Color3.fromRGB(200, 120, 120) },
-	rue = { Title = "RUE", Counter = "Parry it", Color = Color3.fromRGB(180, 140, 255) },
-	drain = { Title = "DRAIN", Counter = "Parry it", Color = Color3.fromRGB(140, 200, 140) },
-	dozer = { Title = "DOZER", Counter = "Parry it", Color = Color3.fromRGB(160, 160, 220) },
-	litany = { Title = "LITANY", Counter = "Parry it", Color = Color3.fromRGB(220, 180, 120) },
-	carnation = { Title = "CARNATION", Counter = "Parry it", Color = Color3.fromRGB(255, 120, 160) },
-	goatman = { Title = "GOATMAN", Counter = "Parry it", Color = Color3.fromRGB(200, 200, 160) },
-	slugfish = { Title = "SLUGFISH", Counter = "Parry it", Color = Color3.fromRGB(120, 180, 160) },
-	kookoo = { Title = "KOOKOO", Counter = "Parry it", Color = Color3.fromRGB(255, 200, 120) },
-	joey = { Title = "JOEY", Counter = "Parry it", Color = Color3.fromRGB(240, 200, 140) },
-	elkman = { Title = "ELKMAN", Counter = "Parry it", Color = Color3.fromRGB(180, 160, 140) },
-	sorrow = { Title = "SORROW", Counter = "Parry it", Color = Color3.fromRGB(140, 140, 200) },
-	woed = { Title = "WOED", Counter = "Parry it", Color = Color3.fromRGB(160, 120, 200) },
-	zomber = { Title = "ZOMBER", Counter = "Parry it", Color = Color3.fromRGB(140, 180, 120) },
-	mime = { Title = "MIME", Counter = "Parry it", Color = Color3.fromRGB(200, 200, 200) },
-	snap = { Title = "SNAP", Counter = "Parry it", Color = Color3.fromRGB(220, 220, 160) },
-	duk = { Title = "DUK", Counter = "Parry it", Color = Color3.fromRGB(160, 160, 160) },
-	tragedy = { Title = "TRAGEDY", Counter = "Parry it", Color = Color3.fromRGB(180, 100, 100) },
-	eyes = { Title = "EYES", Counter = "Parry it", Color = Color3.fromRGB(255, 140, 140) },
+	covet = { Title = "COVET", Counter = "Face it and parry when it reaches you", Color = Color3.fromRGB(255, 80, 80) },
+	acovet = { Title = "COVET (bound)", Counter = "Face it and parry when it reaches you", Color = Color3.fromRGB(255, 80, 80) },
+	sundial = { Title = "SUNDIAL", Counter = "Look UP at it and parry", Color = Color3.fromRGB(255, 200, 80) },
+	sundialt = { Title = "SUNDIAL (bound)", Counter = "Look UP at it and parry", Color = Color3.fromRGB(255, 200, 80) },
+	seesay = { Title = "SEESAY", Counter = "Look AT it and parry", Color = Color3.fromRGB(150, 120, 255) },
+	innego = { Title = "INNEGO", Counter = "Screen entity — keep moving", Color = Color3.fromRGB(120, 220, 255) },
+	innegot = { Title = "INNEGO (bound)", Counter = "Screen entity — keep moving", Color = Color3.fromRGB(120, 220, 255) },
+	stemui = { Title = "STEM", Counter = "Screen entity — keep moving", Color = Color3.fromRGB(120, 255, 160) },
+	doppel = { Title = "DOPPEL", Counter = "Fake player — don't trust it", Color = Color3.fromRGB(200, 200, 200) },
+	bdoppel = { Title = "DOPPEL", Counter = "Fake player — don't trust it", Color = Color3.fromRGB(200, 200, 200) },
+	pulseui = { Title = "IRE", Counter = "Stay on the ground (don't jump)", Color = Color3.fromRGB(255, 120, 255) },
+	fool = { Title = "FOOL", Counter = "Face it and parry (several times)", Color = Color3.fromRGB(255, 160, 120) },
+	craven = { Title = "CRAVEN", Counter = "Face it and parry", Color = Color3.fromRGB(200, 120, 120) },
+	rue = { Title = "RUE", Counter = "Face it and parry once", Color = Color3.fromRGB(180, 140, 255) },
+	drain = { Title = "DRAIN", Counter = "Face it and parry", Color = Color3.fromRGB(140, 200, 140) },
+	dozer = { Title = "DOZER", Counter = "Face it and parry", Color = Color3.fromRGB(160, 160, 220) },
+	litany = { Title = "LITANY", Counter = "Face it and parry", Color = Color3.fromRGB(220, 180, 120) },
+	carnation = { Title = "CARNATION", Counter = "Face it and parry", Color = Color3.fromRGB(255, 120, 160) },
+	goatman = { Title = "GOATMAN", Counter = "Face it and parry", Color = Color3.fromRGB(200, 200, 160) },
+	slugfish = { Title = "SLUGFISH", Counter = "Face it and parry", Color = Color3.fromRGB(120, 180, 160) },
+	kookoo = { Title = "KOOKOO", Counter = "Face it and parry", Color = Color3.fromRGB(255, 200, 120) },
+	joey = { Title = "JOEY", Counter = "Face it and parry", Color = Color3.fromRGB(240, 200, 140) },
+	elkman = { Title = "ELKMAN", Counter = "Face it and parry", Color = Color3.fromRGB(180, 160, 140) },
+	sorrow = { Title = "SORROW", Counter = "Face it and parry", Color = Color3.fromRGB(140, 140, 200) },
+	woed = { Title = "WOED", Counter = "Face it and parry", Color = Color3.fromRGB(160, 120, 200) },
+	zomber = { Title = "ZOMBER", Counter = "Face it and parry", Color = Color3.fromRGB(140, 180, 120) },
+	mime = { Title = "MIME", Counter = "Face it and parry", Color = Color3.fromRGB(200, 200, 200) },
+	snap = { Title = "SNAP", Counter = "Face it and parry", Color = Color3.fromRGB(220, 220, 160) },
+	duk = { Title = "DUK", Counter = "Face it and parry", Color = Color3.fromRGB(160, 160, 160) },
+	tragedy = { Title = "TRAGEDY", Counter = "Face it and parry", Color = Color3.fromRGB(180, 100, 100) },
+	eyes = { Title = "EYES", Counter = "Face it and parry", Color = Color3.fromRGB(255, 140, 140) },
 }
 
 local function entityInfo(name)

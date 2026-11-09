@@ -39,6 +39,7 @@ local Settings = {
 	DestroyMetalDoors = false,
 	HidboxEsp = false,
 	HidboxWaypoint = false,
+	InfiniteWallJump = false,
 }
 
 -- Debug logging: each key only logs once so the console stays readable.
@@ -775,6 +776,16 @@ local function removeParryCooldown()
 	end
 end
 
+-- Sprint counts wall kicks in an internal counter; ResetWallkicks() zeroes it.
+local function resetWallkicks()
+	if ClientShared and type(ClientShared.ResetWallkicks) == "function" then
+		pcall(ClientShared.ResetWallkicks)
+		logOnce("walljump_ok", "infinite wall jump: resetting wall-kick charges", "info")
+	else
+		logOnce("walljump_noclient", "infinite wall jump: ClientShared.ResetWallkicks not found", "warn")
+	end
+end
+
 local function matchesStart(text)
 	return text:find("start") or text:find("next") or text:find("round") or text:find("wave") or text:find("begin")
 		or text:find("pray") or text:find("confess")
@@ -1301,6 +1312,16 @@ Events:AddToggle({
 	end,
 })
 
+Player:AddToggle({
+	Text = "Infinite Wall Jump",
+	Description = "Keeps resetting your wall-kick charges",
+	Icon = "Lucide:arrow-up-right",
+	Default = false,
+	Flag = "gr_infinite_wall_jump",
+	Callback = function(value)
+		Settings.InfiniteWallJump = value
+	end,
+})
 Player:AddSection("Parry", "Lucide:shield")
 Player:AddToggle({
 	Text = "No Parry Cooldown",
@@ -1493,6 +1514,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.InfiniteWallJump then
+			pcall(resetWallkicks)
+		end
+		task.wait(0.2)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid then
@@ -1520,6 +1550,7 @@ ctx:OnCleanup(function()
 	Settings.TriggerLevers, Settings.LeverEsp = false, false
 	Settings.SafeZoneWaypoint, Settings.DestroyMetalDoors = false, false
 	Settings.HidboxEsp, Settings.HidboxWaypoint = false, false
+	Settings.InfiniteWallJump = false
 	removeSafeZone()
 	removeHidboxWaypoint()
 	if parryAttachment then

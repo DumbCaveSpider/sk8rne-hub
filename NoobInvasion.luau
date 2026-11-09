@@ -4,6 +4,7 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PathfindingService = game:GetService("PathfindingService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -508,12 +509,20 @@ local lastChaseMoveAt = 0
 local lastChasePosition = nil
 local lastStuckPos = nil
 local lastStuckCheckAt = 0
+local chasePath = nil
+local chaseIndex = 1
+local chaseTargetPos = nil
+local lastRepathAt = 0
 
 local function clearChasePath()
 	lastChasePosition = nil
 	lastChaseMoveAt = 0
 	lastStuckPos = nil
 	lastStuckCheckAt = 0
+	chasePath = nil
+	chaseIndex = 1
+	chaseTargetPos = nil
+	lastRepathAt = 0
 	if chaseSpeedApplied then
 		chaseSpeedApplied = false
 		local humanoid = getHumanoid()
@@ -521,6 +530,29 @@ local function clearChasePath()
 			humanoid.WalkSpeed = Settings.SpeedOn and Settings.Speed or 16
 		end
 	end
+end
+
+local function buildChasePath(noob)
+	local myRoot = getRootPart()
+	if not myRoot or not noob then
+		return false
+	end
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 3,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		AgentJumpHeight = 7,
+		AgentMaxSlope = 45,
+	})
+	local ok = pcall(function()
+		path:ComputeAsync(myRoot.Position, noob.Position)
+	end)
+	if not ok or path.Status ~= Enum.PathStatus.Success then
+		return false
+	end
+	chasePath = path
+	chaseIndex = 2
+	return true
 end
 
 local nextChaseAt = 0
@@ -555,15 +587,34 @@ local function autoChaseStep()
 		humanoid.WalkSpeed = desiredSpeed
 		chaseSpeedApplied = true
 	end
-	-- MoveTo is what the game's input controller respects; Humanoid:Move is reset to zero
-	-- every frame when no keys are held. Throttle + predict so it tracks a moving noob
-	-- without restarting the walk every tick.
-	local predicted = flat + (noob.AssemblyLinearVelocity or Vector3.zero) * 0.2
-	local movedFar = lastChasePosition == nil or (predicted - lastChasePosition).Magnitude > 4
-	if now - lastChaseMoveAt >= 0.25 or movedFar then
-		lastChaseMoveAt = now
-		lastChasePosition = predicted
-		humanoid:MoveTo(predicted)
+	-- Pathfind to the noob so walls and ledges are routed around instead of walked into.
+	-- Repath only when the target moves far enough or the path gets old, and re-issue
+	-- MoveTo only when the waypoint changes, which keeps the walk smooth.
+	local targetMoved = chaseTargetPos and (noob.Position - chaseTargetPos).Magnitude > 8
+	if not chasePath or targetMoved or now - lastRepathAt > 1 then
+		chaseTargetPos = noob.Position
+		lastRepathAt = now
+		if not buildChasePath(noob) then
+			humanoid:MoveTo(noob.Position)
+			return
+		end
+	end
+	local waypoints = chasePath and chasePath:GetWaypoints()
+	if not waypoints or chaseIndex > #waypoints then
+		humanoid:MoveTo(noob.Position)
+		return
+	end
+	local waypoint = waypoints[chaseIndex]
+	if waypoint.Action == Enum.PathWaypointAction.Jump then
+		humanoid.Jump = true
+	end
+	if lastChasePosition ~= waypoint then
+		lastChasePosition = waypoint
+		humanoid:MoveTo(waypoint.Position)
+	end
+	if (myRoot.Position - waypoint.Position).Magnitude < 3 then
+		chaseIndex = chaseIndex + 1
+		lastChasePosition = nil
 	end
 	if noob.Position.Y > myRoot.Position.Y + 3 then
 		humanoid.Jump = true

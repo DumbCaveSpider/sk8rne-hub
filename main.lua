@@ -4,7 +4,7 @@ local HUB = {
 	Name = "Sk8rne Hub",
 	Version = "1.0.0",
 	LibraryUrl = "https://raw.githubusercontent.com/Skinny-yz/VVind-UI/refs/heads/main/src.lua",
-	RepoUrl = "https://raw.githubusercontent.com/DumbCaveSpider/sk8rne-hub/refs/heads/main",
+	RepoUrl = "https://raw.githack.com/DumbCaveSpider/sk8rne-hub/main",
 	WebsiteUrl = "https://arcticwoof.xyz/",
 }
 

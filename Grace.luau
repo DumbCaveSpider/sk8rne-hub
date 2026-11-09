@@ -508,19 +508,16 @@ local function leftClick()
 	end
 	-- gameProcessedEvent must be false: passing 0 (truthy) makes the game's InputBegan
 	-- handler treat the click as already handled and skip the parry.
-	local userInputService = game:GetService("UserInputService")
-	local virtualInput = game:GetService("VirtualInputManager")
-	if virtualInput then
+	-- VirtualInputManager may not be a valid service in every executor, so keep GetService
+	-- inside the pcall: otherwise the whole loop errors and is silently swallowed.
+	local ok = pcall(function()
+		local userInputService = game:GetService("UserInputService")
+		local virtualInput = game:GetService("VirtualInputManager")
 		local location = userInputService:GetMouseLocation()
-		local ok = pcall(function()
-			virtualInput:SendMouseButtonEvent(location.X, location.Y, 0, true, false)
-			virtualInput:SendMouseButtonEvent(location.X, location.Y, 0, false, false)
-		end)
-		if ok then
-			return true
-		end
-	end
-	return false
+		virtualInput:SendMouseButtonEvent(location.X, location.Y, 0, true, false)
+		virtualInput:SendMouseButtonEvent(location.X, location.Y, 0, false, false)
+	end)
+	return ok
 end
 
 local function autoParry()
@@ -778,6 +775,8 @@ Reprieve:AddToggle({
 	Flag = "gr_auto_parry",
 	Callback = function(value)
 		Settings.AutoParry = value
+		nextParryAt = 0
+		ctx:Log("[GRACE] auto parry " .. (value and "enabled" or "disabled"), "info")
 	end,
 })
 Reprieve:AddToggle({
@@ -880,7 +879,10 @@ end)
 task.spawn(function()
 	while ctx:Alive() do
 		if Settings.AutoParry then
-			pcall(autoParry)
+			local ok, err = pcall(autoParry)
+			if not ok then
+				logOnce("parry_loop_error", "auto parry error: " .. tostring(err), "warn")
+			end
 		end
 		task.wait(0.05)
 	end

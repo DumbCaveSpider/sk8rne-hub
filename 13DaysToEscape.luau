@@ -187,6 +187,8 @@ local Settings = {
 	AutoKillTarget = false,
 	KillRange = 6,
 	ShowSchedule = false,
+	AutoCash = false,
+	AutoBooks = false,
 }
 
 ---------------------------------------------------------------------
@@ -377,6 +379,131 @@ local function firePeel()
 	remote:FireServer("PeelComplete", peel.token, peel.nextMask)
 	peel.nextMask += 1
 	peel.nextAt = now + 0.2
+end
+
+---------------------------------------------------------------------
+-- Prompt jobs (cash piles and library books)
+---------------------------------------------------------------------
+
+-- Prompt references are cached so a per-tick pass never walks the whole map.
+local cashPrompts = {}
+local takeBookPrompts = {}
+local libraryJobPrompt = nil
+
+local function trackPrompt(instance)
+	if not instance:IsA("ProximityPrompt") then
+		return
+	end
+	if instance.Name == "StealCash" then
+		cashPrompts[instance] = true
+	elseif instance.Name == "TakeBook" then
+		takeBookPrompts[instance] = true
+	elseif instance.Name == "LibraryJob" then
+		libraryJobPrompt = instance
+	end
+end
+
+ctx:Connect(workspace.DescendantAdded, trackPrompt)
+for _, descendant in ipairs(workspace:GetDescendants()) do
+	trackPrompt(descendant)
+end
+
+-- fireproximityprompt skips the client's distance/aim gate. Executors without it fall back
+-- to a simulated hold, forcing the prompt enabled because the game disables far ones.
+local function triggerPrompt(prompt)
+	if not prompt then
+		return false
+	end
+	if type(fireproximityprompt) == "function" then
+		local ok = pcall(fireproximityprompt, prompt)
+		if ok then
+			return true
+		end
+	end
+	pcall(function()
+		local wasEnabled = prompt.Enabled
+		prompt.Enabled = true
+		prompt:InputHoldBegin()
+		task.delay(math.max(0.05, (prompt.HoldDuration or 0) + 0.05), function()
+			pcall(prompt.InputHoldEnd, prompt)
+			prompt.Enabled = wasEnabled
+		end)
+	end)
+	return true
+end
+
+local nextCashAt = 0
+local nextBookAt = 0
+local lastCashTry = {}
+
+local function cashStep()
+	if not actionsUnblocked() then
+		return
+	end
+	local now = os.clock()
+	if now < nextCashAt then
+		return
+	end
+	nextCashAt = now + 0.2
+	for prompt in pairs(cashPrompts) do
+		if prompt:IsDescendantOf(workspace) then
+			if prompt.ObjectText ~= "$0" and now - (lastCashTry[prompt] or 0) >= 3 then
+				lastCashTry[prompt] = now
+				if triggerPrompt(prompt) then
+					nextCashAt = now + 0.7
+					return
+				end
+			end
+		else
+			cashPrompts[prompt] = nil
+			lastCashTry[prompt] = nil
+		end
+	end
+end
+
+local function bookStep()
+	if not actionsUnblocked() then
+		return
+	end
+	local now = os.clock()
+	if now < nextBookAt then
+		return
+	end
+	local requested = tonumber(LocalPlayer:GetAttribute("LibraryJobBook"))
+	local done = tonumber(LocalPlayer:GetAttribute("LibraryJobsDone")) or 0
+	if not requested or done >= 3 then
+		nextBookAt = now + 1
+		return
+	end
+	local character = LocalPlayer.Character
+	local tool = character and character:FindFirstChildOfClass("Tool")
+	if tool and tool:GetAttribute("PrisonBook") then
+		-- Holding the book: hand it to the clerk.
+		if libraryJobPrompt and libraryJobPrompt:IsDescendantOf(workspace) then
+			triggerPrompt(libraryJobPrompt)
+			nextBookAt = now + 0.8
+		else
+			nextBookAt = now + 0.5
+		end
+		return
+	end
+	for prompt in pairs(takeBookPrompts) do
+		if prompt:IsDescendantOf(workspace) then
+			if
+				tonumber(prompt:GetAttribute("BookNumber")) == requested
+				and prompt:GetAttribute("BookBusy") ~= true
+				and prompt:GetAttribute("BookReturnOnly") ~= true
+				and (tonumber(prompt:GetAttribute("BookStock")) or 0) > 0
+			then
+				triggerPrompt(prompt)
+				nextBookAt = now + 0.8
+				return
+			end
+		else
+			takeBookPrompts[prompt] = nil
+		end
+	end
+	nextBookAt = now + 0.5
 end
 
 ---------------------------------------------------------------------
@@ -767,6 +894,30 @@ Farm:AddToggle({
 	end,
 })
 
+Farm:AddSection("Cash", "Lucide:wallet")
+Farm:AddToggle({
+	Text = "Auto Collect Cash",
+	Description = "Triggers every cash pile's steal prompt, regardless of distance",
+	Icon = "Lucide:coins",
+	Default = false,
+	Flag = "13de_auto_cash",
+	Callback = function(value)
+		Settings.AutoCash = value
+	end,
+})
+
+Farm:AddSection("Library", "Lucide:scroll-text")
+Farm:AddToggle({
+	Text = "Auto Farm Books",
+	Description = "Takes your requested library book and delivers it to the clerk",
+	Icon = "Lucide:book",
+	Default = false,
+	Flag = "13de_auto_books",
+	Callback = function(value)
+		Settings.AutoBooks = value
+	end,
+})
+
 Visuals:AddSection("Schedule", "Lucide:timer")
 Visuals:AddToggle({
 	Text = "Show Schedule HUD",
@@ -1030,6 +1181,24 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoCash then
+			pcall(cashStep)
+		end
+		task.wait(0.15)
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoBooks then
+			pcall(bookStep)
+		end
+		task.wait(0.15)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	if Settings.SpeedBoost then
 		local humanoid = character:WaitForChild("Humanoid", 5)
@@ -1049,6 +1218,7 @@ ctx:OnCleanup(function()
 	Settings.AutoPunch, Settings.AutoAttack, Settings.AutoDig, Settings.AutoBreak = false, false, false, false
 	Settings.AutoKillTarget = false
 	Settings.ShowSchedule = false
+	Settings.AutoCash, Settings.AutoBooks = false, false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

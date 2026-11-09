@@ -22,6 +22,7 @@ local function tryRequire(name)
 end
 
 local PrisonSchedule = tryRequire("PrisonSchedule")
+local OJTrade = tryRequire("OJTrade")
 
 -- Tool categories and cooldowns, matching the game's UtensilConfig.
 local DIG_TOOLS = { Spoon = true, Trowel = true, Drill = true }
@@ -148,6 +149,8 @@ local Settings = {
 	WalkSpeed = 30,
 	FovBoost = false,
 	Fov = 100,
+	TargetEsp = false,
+	FreezeSuspicion = false,
 }
 
 ---------------------------------------------------------------------
@@ -296,6 +299,7 @@ local ESP_COLORS = {
 	Camera = Color3.fromRGB(255, 200, 80),
 	Warden = Color3.fromRGB(200, 96, 255),
 	Sentry = Color3.fromRGB(96, 220, 255),
+	Target = Color3.fromRGB(255, 220, 60),
 }
 
 local function guardAlertLevel(guard, now, manhunt)
@@ -312,6 +316,15 @@ local function guardAlertLevel(guard, now, manhunt)
 		return 1
 	end
 	return 0
+end
+
+local function isTarget(npc, targetName)
+	if npc.Name == targetName then
+		return true
+	end
+	local kind1, num1 = targetName:match("^(%a+)(%d+)$")
+	local kind2, num2 = npc.Name:match("^(%a+)(%d+)$")
+	return kind1 ~= nil and kind1 == kind2 and tonumber(num1) == tonumber(num2)
 end
 
 local function espAnchor(model)
@@ -423,6 +436,30 @@ local function collectEspTargets()
 		end
 	end
 
+	if Settings.TargetEsp then
+		local targetName = nil
+		if OJTrade then
+			local ok, offer = pcall(OJTrade.decode, LocalPlayer:GetAttribute("OJTradeOffer"))
+			if ok and offer and offer.Need == "Assassination" then
+				targetName = offer.Target
+			end
+		end
+		if targetName then
+			for _, npc in ipairs(CollectionService:GetTagged("PrisonAmbientNPC")) do
+				if isTarget(npc, targetName) then
+					local humanoid = npc:FindFirstChildOfClass("Humanoid")
+					local root = npc:FindFirstChild("HumanoidRootPart")
+					if humanoid and humanoid.Health > 0 and root then
+						local distance = (root.Position - myRoot.Position).Magnitude
+						if distance <= Settings.EspDistance then
+							add(npc, "Target", string.format("TARGET %s\n%d studs", targetName, math.floor(distance)))
+						end
+					end
+				end
+			end
+		end
+	end
+
 	return targets
 end
 
@@ -455,7 +492,7 @@ local function clearEsp()
 end
 
 local function anyEspEnabled()
-	return Settings.GuardEsp or Settings.CameraEsp or Settings.WardenEsp or Settings.SentryEsp
+	return Settings.GuardEsp or Settings.CameraEsp or Settings.WardenEsp or Settings.SentryEsp or Settings.TargetEsp
 end
 
 local function getScheduleText()
@@ -502,6 +539,14 @@ local function applyFov()
 		camera.FieldOfView = Settings.FovBoost and Settings.Fov or DEFAULT_FOV
 	end
 end
+
+-- Pins the client's displayed suspicion to zero while enabled.
+local suspicionFrozen = false
+ctx:Connect(LocalPlayer:GetAttributeChangedSignal("Suspicion"), function()
+	if suspicionFrozen and LocalPlayer:GetAttribute("Suspicion") ~= 0 then
+		LocalPlayer:SetAttribute("Suspicion", 0)
+	end
+end)
 
 ---------------------------------------------------------------------
 -- UI
@@ -608,6 +653,18 @@ Visuals:AddToggle({
 	end,
 })
 
+Visuals:AddSection("Targets", "Lucide:crosshair")
+Visuals:AddToggle({
+	Text = "Target ESP",
+	Description = "Highlights your current OJ assassination target",
+	Icon = "Lucide:target",
+	Default = false,
+	Flag = "13de_target_esp",
+	Callback = function(value)
+		Settings.TargetEsp = value
+	end,
+})
+
 Visuals:AddSection("Cameras", "Lucide:camera")
 Visuals:AddToggle({
 	Text = "Camera ESP",
@@ -711,6 +768,21 @@ Player:AddToggle({
 	Flag = "13de_reduced_motion",
 	Callback = function(value)
 		ctx:SetAttribute(LocalPlayer, "ReducedMotion", value)
+	end,
+})
+
+Player:AddSection("Stealth", "Lucide:shield")
+Player:AddToggle({
+	Text = "Freeze Suspicion",
+	Description = "Pins the suspicion meter to zero",
+	Icon = "Lucide:eye-off",
+	Default = false,
+	Flag = "13de_freeze_suspicion",
+	Callback = function(value)
+		suspicionFrozen = value
+		if value then
+			LocalPlayer:SetAttribute("Suspicion", 0)
+		end
 	end,
 })
 

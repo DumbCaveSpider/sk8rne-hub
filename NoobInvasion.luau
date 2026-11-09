@@ -982,6 +982,14 @@ Player:AddSlider({
 	end,
 })
 local waveWaypoint = nil
+local waveWaypointBox = Player:AddTextbox({
+	Text = "Wave Waypoint",
+	Description = "Coordinates of the saved waypoint",
+	Icon = "Lucide:map-pin",
+	Placeholder = "not set",
+	Default = "",
+	Flag = "ni_waypoint_coords",
+})
 
 Player:AddButton({
 	Text = "Set Wave Waypoint",
@@ -991,7 +999,12 @@ Player:AddButton({
 		local myRoot = getRootPart()
 		if myRoot then
 			waveWaypoint = myRoot.Position
-			ctx:Log("[NI] wave waypoint saved", "info")
+			local coords = string.format("%.1f, %.1f, %.1f", waveWaypoint.X, waveWaypoint.Y, waveWaypoint.Z)
+			pcall(function()
+				waveWaypointBox:Set(coords)
+			end)
+			ctx:Notify("Waypoint set: " .. coords, "success")
+			ctx:Log("[NI] wave waypoint saved: " .. coords, "info")
 		end
 	end,
 })
@@ -1250,6 +1263,22 @@ task.spawn(function()
 			pcall(espStep)
 		end
 		task.wait(0.2)
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
+		-- No enemies left: walk back to the saved wave waypoint automatically.
+		if waveWaypoint then
+			local humanoid = getHumanoid()
+			local myRoot = getRootPart()
+			if humanoid and myRoot and not nearestNoob() then
+				if (myRoot.Position - waveWaypoint).Magnitude > 6 then
+					humanoid:MoveTo(waveWaypoint)
+				end
+			end
+		end
+		task.wait(0.5)
 	end
 end)
 

@@ -97,6 +97,12 @@ end
 function Session:_log(message, level)
 	level = level or "info"
 	local prefix = self.Game and self.Game.Key or "Hub"
+	if type(message) == "table" then
+		local ok, encoded = pcall(function()
+			return game:GetService("HttpService"):JSONEncode(message)
+		end)
+		message = ok and encoded or tostring(message)
+	end
 	local line = string.format("[%s] %s", prefix, tostring(message))
 
 	table.insert(self._logLines, { Line = line, Type = LOG_TYPES[level] or LOG_TYPES.info })

@@ -529,10 +529,23 @@ local function autoParry()
 		return
 	end
 	nextParryAt = now + 0.15
-	local clicked = leftClick()
-	if not clicked then
-		logOnce("parry_noclick", "auto parry: no mouse1click/VirtualInputManager, using the remote attempt only", "warn")
+	local fired = false
+
+	-- 1. A real left click reaches the game's useitem/parry binding.
+	if leftClick() then
+		fired = true
 	end
+
+	-- 2. The signal the game's own parry() function fires.
+	if ClientShared and ClientShared.CrouchParryAttempt then
+		local signal = ClientShared.CrouchParryAttempt
+		if type(signal.Fire) == "function" then
+			pcall(signal.Fire, signal)
+			fired = true
+		end
+	end
+
+	-- 3. The entity-facing attempt that Sundial/Seesay/Covet listen to.
 	if not ClientParryAttempt then
 		ClientParryAttempt = ReplicatedStorage:FindFirstChild("ClientParryAttempt")
 	end
@@ -543,8 +556,23 @@ local function autoParry()
 		pcall(function()
 			ClientParryAttempt:Fire(attachment, tostring(math.random(1, 1000000)))
 		end)
+		fired = true
 	end
-	logOnce("parry_ok", "auto parry: clicking the useitem binding every 150ms", "info")
+
+	if fired then
+		logOnce(
+			"parry_ok",
+			string.format(
+				"auto parry: firing every 150ms (click=%s crouchSignal=%s remote=%s)",
+				tostring(type(mouse1press) == "function" or type(mouse1click) == "function"),
+				tostring(ClientShared ~= nil and ClientShared.CrouchParryAttempt ~= nil),
+				tostring(ClientParryAttempt ~= nil)
+			),
+			"info"
+		)
+	else
+		logOnce("parry_none", "auto parry: no usable method (no click, ClientShared, or ClientParryAttempt)", "warn")
+	end
 end
 
 -- Saferoom modifier vote: each option is a modifier whose Reward attribute is its XP multiplier.

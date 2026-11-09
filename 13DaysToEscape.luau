@@ -186,6 +186,7 @@ local Settings = {
 	FreezeSuspicion = false,
 	AutoKillTarget = false,
 	KillRange = 6,
+	ShowSchedule = false,
 }
 
 ---------------------------------------------------------------------
@@ -607,6 +608,37 @@ local function getScheduleText()
 	return table.concat(lines, "\n")
 end
 
+-- Plain on-screen schedule readout. VindUI controls can't be written from this module's
+-- task threads on some executors (they throw a capability error), so this uses our own
+-- instances, which updates from a task thread can safely touch.
+local scheduleHud = ctx:Track(Instance.new("ScreenGui"))
+scheduleHud.Name = "Sk8rne13DSchedule"
+scheduleHud.ResetOnSpawn = false
+scheduleHud.IgnoreGuiInset = true
+scheduleHud.DisplayOrder = 80
+scheduleHud.Enabled = false
+scheduleHud.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+
+local scheduleLabel = Instance.new("TextLabel")
+scheduleLabel.Size = UDim2.fromOffset(280, 62)
+scheduleLabel.Position = UDim2.fromOffset(12, 100)
+scheduleLabel.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+scheduleLabel.BackgroundTransparency = 0.35
+scheduleLabel.BorderSizePixel = 0
+scheduleLabel.Font = Enum.Font.GothamBold
+scheduleLabel.TextSize = 12
+scheduleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+scheduleLabel.TextStrokeTransparency = 0.5
+scheduleLabel.TextWrapped = true
+scheduleLabel.TextXAlignment = Enum.TextXAlignment.Left
+scheduleLabel.TextYAlignment = Enum.TextYAlignment.Top
+scheduleLabel.Text = ""
+scheduleLabel.Parent = scheduleHud
+
+local scheduleCorner = Instance.new("UICorner")
+scheduleCorner.CornerRadius = UDim.new(0, 8)
+scheduleCorner.Parent = scheduleLabel
+
 ---------------------------------------------------------------------
 -- Player
 ---------------------------------------------------------------------
@@ -736,10 +768,22 @@ Farm:AddToggle({
 })
 
 Visuals:AddSection("Schedule", "Lucide:timer")
-local schedulePara = Visuals:AddParagraph({
-	Title = "Prison Schedule",
+Visuals:AddToggle({
+	Text = "Show Schedule HUD",
+	Description = "Shows the current day, phase and lockdown state on screen",
 	Icon = "Lucide:timer",
-	Text = getScheduleText(),
+	Default = false,
+	Flag = "13de_schedule_hud",
+	Callback = function(value)
+		Settings.ShowSchedule = value
+		scheduleHud.Enabled = value
+		if value then
+			local ok, text = pcall(getScheduleText)
+			if ok then
+				scheduleLabel.Text = text
+			end
+		end
+	end,
 })
 
 Visuals:AddSection("Enemies", "Lucide:skull")
@@ -976,9 +1020,11 @@ end)
 
 task.spawn(function()
 	while ctx:Alive() do
-		local ok, text = pcall(getScheduleText)
-		if ok then
-			schedulePara:Set(text)
+		if Settings.ShowSchedule and scheduleHud.Enabled then
+			local ok, text = pcall(getScheduleText)
+			if ok then
+				scheduleLabel.Text = text
+			end
 		end
 		task.wait(1)
 	end
@@ -1002,6 +1048,7 @@ ctx:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"), applyFov)
 ctx:OnCleanup(function()
 	Settings.AutoPunch, Settings.AutoAttack, Settings.AutoDig, Settings.AutoBreak = false, false, false, false
 	Settings.AutoKillTarget = false
+	Settings.ShowSchedule = false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

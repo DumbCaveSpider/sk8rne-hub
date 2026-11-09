@@ -347,13 +347,9 @@ faceNearestNoob = function()
 	return false
 end
 
-local chaseTargetPosition = nil
 local chaseSpeedApplied = false
-local lastChaseMoveAt = 0
 
 local function clearChasePath()
-	chaseTargetPosition = nil
-	lastChaseMoveAt = 0
 	if chaseSpeedApplied then
 		chaseSpeedApplied = false
 		local humanoid = getHumanoid()
@@ -369,7 +365,7 @@ local function autoChaseStep()
 	if now < nextChaseAt then
 		return
 	end
-	nextChaseAt = now + 0.2
+	nextChaseAt = now + 0.1
 	local humanoid = getHumanoid()
 	local myRoot = getRootPart()
 	if not humanoid or not myRoot then
@@ -385,14 +381,17 @@ local function autoChaseStep()
 		humanoid.WalkSpeed = Settings.ChaseSpeed
 		chaseSpeedApplied = true
 	end
-	-- Walk straight at the noob. Only re-issue MoveTo when the target has actually moved,
-	-- because calling it every tick restarts the walk and causes the stutter.
-	if not chaseTargetPosition or (noob.Position - chaseTargetPosition).Magnitude > 2 or now - lastChaseMoveAt > 0.5 then
-		chaseTargetPosition = noob.Position
-		lastChaseMoveAt = now
-		humanoid:MoveTo(noob.Position)
+	-- Continuous steering: Humanoid:Move keeps one smooth walk toward a moving target.
+	-- Re-calling MoveTo every tick restarts the walk, which is what caused the stutter.
+	local flat = Vector3.new(noob.Position.X, myRoot.Position.Y, noob.Position.Z)
+	local direction = flat - myRoot.Position
+	if direction.Magnitude > 0.5 then
+		humanoid:Move(direction.Unit)
 	end
-	logOnce("chase_ok", "auto chase: walking straight to the nearest noob", "info")
+	if noob.Position.Y > myRoot.Position.Y + 3 then
+		humanoid.Jump = true
+	end
+	logOnce("chase_ok", "auto chase: steering toward the nearest noob", "info")
 end
 
 local function autoDashStep()

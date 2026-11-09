@@ -470,11 +470,10 @@ local function unlimitedStaminaStep()
 	local now = os.clock()
 	local stamina = LocalPlayer:GetAttribute("Stamina")
 	local isNumber = typeof(stamina) == "number"
-	if not isNumber or stamina < 100 then
-		pcall(function()
-			LocalPlayer:SetAttribute("Stamina", 100)
-		end)
-	end
+	pcall(function()
+		LocalPlayer:SetAttribute("Stamina", 100)
+		LocalPlayer:SetAttribute("StaminaDrainMultiplier", 0)
+	end)
 	local sprintRemotes = ReplicatedStorage:FindFirstChild("SprintRemotes")
 	local setSprint = sprintRemotes and sprintRemotes:FindFirstChild("SetSprint")
 	local fired = false
@@ -503,11 +502,9 @@ local function unlimitedOxygenStep()
 	local now = os.clock()
 	local breath = LocalPlayer:GetAttribute("Breath")
 	local isNumber = typeof(breath) == "number"
-	if not isNumber or breath < 100 then
-		pcall(function()
-			LocalPlayer:SetAttribute("Breath", 100)
-		end)
-	end
+	pcall(function()
+		LocalPlayer:SetAttribute("Breath", 100)
+	end)
 	if now - lastBreathLog >= 2 then
 		lastBreathLog = now
 		ctx:Log(string.format("[SYI] oxygen debug: breath=%s", isNumber and tostring(math.floor(breath)) or "nil"), "info")
@@ -516,12 +513,11 @@ local function unlimitedOxygenStep()
 end
 
 local WRITE_CANDIDATES = {
+	{ { "WriterRemotes" }, "SubmitWord" },
+	{ { "MetaWords", "Remotes" }, "TryMeta" },
 	{ { "MetaWords", "Remotes" }, "Submit" },
-	{ { "MetaWords", "Remotes" }, "Write" },
-	{ { "MetaWords", "Remotes" }, "SubmitWord" },
 	{ { "WriterRemotes" }, "Submit" },
 	{ { "WriterRemotes" }, "Write" },
-	{ { "WriterRemotes" }, "SubmitWord" },
 }
 
 local function findWriteRemote()
@@ -1129,7 +1125,7 @@ task.spawn(function()
 		if Settings.AutoWrite then
 			pcall(autoWriteStep)
 		end
-		task.wait(0.2)
+		task.wait(0.05)
 	end
 end)
 

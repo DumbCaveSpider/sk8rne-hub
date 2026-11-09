@@ -61,6 +61,7 @@ local Settings = {
 	UnlimitedOxygen = false,
 	AutoWrite = false,
 	WriteWord = "money",
+	AutoWriteWorst = false,
 }
 
 ---------------------------------------------------------------------
@@ -555,9 +556,26 @@ task.spawn(function()
 	ctx:Log("[SYI] Items.Remotes: " .. names(itemsRemotes), "info")
 end)
 
+-- Worst disasters, taken from the game's own DiaryCatalog.
+local WORST_DISASTERS = {
+	"tsunami", "lava", "meteor", "tornado", "lightning", "earthquake", "bomb", "volcano",
+	"acid", "black_hole", "heat", "snow", "alien", "dragon", "spider", "snake",
+	"invisible", "oof", "zombie", "dinosaur", "monster", "clown", "giant", "shark",
+	"bees", "ghost", "laser", "storm", "ice", "delete", "shrink", "hunger",
+}
+
+local function randomWorstDisaster()
+	return WORST_DISASTERS[math.random(1, #WORST_DISASTERS)]
+end
+
 local nextWriteAt = 0
 local function autoWriteStep()
-	local word = Settings.WriteWord
+	local word
+	if Settings.AutoWriteWorst then
+		word = randomWorstDisaster()
+	else
+		word = Settings.WriteWord
+	end
 	if type(word) ~= "string" or word == "" then
 		return
 	end
@@ -574,7 +592,7 @@ local function autoWriteStep()
 	pcall(function()
 		remote:FireServer(word)
 	end)
-	logOnce("write_ok", "auto write: submitting warnings as the chosen word", "info")
+	logOnce("write_word_" .. word, "auto write -> " .. word, "info")
 end
 
 ---------------------------------------------------------------------
@@ -872,15 +890,14 @@ Words:AddToggle({
 		Settings.AutoWrite = value
 	end,
 })
-Words:AddDropdown({
-	Text = "Best Outcome Word",
-	Description = "Beneficial disasters to write",
-	Icon = "Lucide:sparkles",
-	Options = { "money", "food", "rain", "fly", "gravity", "speed", "jump", "chair", "tree", "cat", "dog" },
-	Default = "money",
-	Flag = "syi_write_word",
+Words:AddToggle({
+	Text = "Always Worst Disaster",
+	Description = "Randomly writes the worst disasters from the list",
+	Icon = "Lucide:skull",
+	Default = false,
+	Flag = "syi_write_worst",
 	Callback = function(value)
-		Settings.WriteWord = value
+		Settings.AutoWriteWorst = value
 	end,
 })
 

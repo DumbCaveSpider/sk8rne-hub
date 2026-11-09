@@ -32,6 +32,18 @@ local Settings = {
 	BestModifier = false,
 }
 
+-- Debug logging: each key only logs once so the console stays readable.
+local loggedOnce = {}
+local function logOnce(key, message, level)
+	if loggedOnce[key] then
+		return
+	end
+	loggedOnce[key] = true
+	ctx:Log("[GRACE] " .. message, level or "info")
+end
+
+ctx:Log("[GRACE] module loaded", "info")
+
 -- What each entity actually does, shown in the event panel.
 local EVENT_INFO = {
 	Covet = { Title = "COVET", Hint = "Chasing you — sprint to the saferoom", Color = Color3.fromRGB(255, 80, 80) },
@@ -140,6 +152,13 @@ local function espStep()
 			espEntries[model] = nil
 		end
 	end
+	local count = 0
+	for _ in pairs(visible) do
+		count += 1
+	end
+	if count > 0 then
+		logOnce("esp_found", string.format("entity ESP: drawing %d target(s)", count), "info")
+	end
 end
 
 ---------------------------------------------------------------------
@@ -234,8 +253,10 @@ local function waypointStep()
 	local doorPart, distance = nearestDoor()
 	if not doorPart then
 		removeWaypoint()
+		logOnce("waypoint_none", "door waypoint: no unopened door found (cleared)", "info")
 		return
 	end
+	logOnce("waypoint_found", "door waypoint: targeting " .. doorPart:GetFullName(), "info")
 	ensureWaypoint()
 	waypointGui.Adornee = doorPart
 	waypointLabel.Text = string.format("DOOR\n%d studs", math.floor(distance))
@@ -321,6 +342,8 @@ local function activeEvents()
 	return active
 end
 
+local lastEventName = nil
+
 local function eventStep()
 	if not Settings.EventNotifier then
 		eventFrame.Visible = false
@@ -335,6 +358,10 @@ local function eventStep()
 		return
 	end
 	local name = active[1]
+	if name ~= lastEventName then
+		lastEventName = name
+		ctx:Log("[GRACE] event active: " .. tostring(name), "info")
+	end
 	local info = EVENT_INFO[name]
 	eventFrame.Visible = true
 	eventTitle.Text = info and info.Title or name
@@ -366,6 +393,8 @@ local function removeParryCooldown()
 	if ClientShared then
 		-- The parry gate is (now - LastParry) < recharge, so pinning it to zero removes it.
 		ClientShared.LastParry = 0
+	else
+		logOnce("parry_noclient", "no parry cooldown: ClientShared module not found", "warn")
 	end
 end
 
@@ -421,8 +450,10 @@ local function startNextRound()
 	end
 	local trigger = resolveStartTrigger()
 	if not trigger then
+		logOnce("start_notrigger", "auto start: no start prompt/remote found", "warn")
 		return
 	end
+	logOnce("start_" .. trigger.ClassName, "auto start: using " .. trigger.ClassName .. " " .. trigger:GetFullName(), "info")
 	if trigger:IsA("ProximityPrompt") then
 		if type(fireproximityprompt) == "function" then
 			pcall(fireproximityprompt, trigger)
@@ -458,27 +489,49 @@ local function ensureParryAttachment()
 	return parryAttachment
 end
 
+-- Parry is bound to the "useitem" key (left click by default), so drive it with real clicks.
+local function leftClick()
+	if type(mouse1click) == "function" then
+		local ok = pcall(mouse1click)
+		if ok then
+			return true
+		end
+	end
+	local virtualInput = game:GetService("VirtualInputManager")
+	if virtualInput then
+		local ok = pcall(function()
+			virtualInput:SendMouseButtonEvent(0, 0, 0, true, 0)
+			virtualInput:SendMouseButtonEvent(0, 0, 0, false, 0)
+		end)
+		if ok then
+			return true
+		end
+	end
+	return false
+end
+
 local function autoParry()
-	if not ClientParryAttempt then
-		ClientParryAttempt = ReplicatedStorage:FindFirstChild("ClientParryAttempt")
-	end
-	if not ClientParryAttempt then
-		return
-	end
 	local now = os.clock()
 	if now < nextParryAt then
 		return
 	end
-	nextParryAt = now + 0.12
-	local camera = workspace.CurrentCamera
-	if not camera then
-		return
+	nextParryAt = now + 0.15
+	local clicked = leftClick()
+	if not clicked then
+		logOnce("parry_noclick", "auto parry: no mouse1click/VirtualInputManager, using the remote attempt only", "warn")
 	end
-	local attachment = ensureParryAttachment()
-	attachment.CFrame = camera.CFrame
-	pcall(function()
-		ClientParryAttempt:Fire(attachment, tostring(math.random(1, 1000000)))
-	end)
+	if not ClientParryAttempt then
+		ClientParryAttempt = ReplicatedStorage:FindFirstChild("ClientParryAttempt")
+	end
+	local camera = workspace.CurrentCamera
+	if ClientParryAttempt and camera then
+		local attachment = ensureParryAttachment()
+		attachment.CFrame = camera.CFrame
+		pcall(function()
+			ClientParryAttempt:Fire(attachment, tostring(math.random(1, 1000000)))
+		end)
+	end
+	logOnce("parry_ok", "auto parry: clicking the useitem binding every 150ms", "info")
 end
 
 -- Saferoom modifier vote: each option is a modifier whose Reward attribute is its XP multiplier.
@@ -498,19 +551,32 @@ task.spawn(function()
 		if not Settings.BestModifier then
 			return
 		end
+		local options = {}
 		local bestIndex, bestReward = nil, -math.huge
 		for index = 1, select("#", ...) do
 			local id = select(index, ...)
 			local instance = defs:FindFirstChild(id, true)
 			local reward = instance and (instance:GetAttribute("Reward") or 0)
+			table.insert(options, string.format("%d=%s(%.2f)", index, tostring(id), reward or 0))
 			if reward and reward > bestReward then
 				bestIndex, bestReward = index, reward
 			end
 		end
 		if bestIndex then
+			ctx:Log(
+				string.format(
+					"[GRACE] modifier vote: options %s -> picking %d (%.2f)",
+					table.concat(options, ", "),
+					bestIndex,
+					bestReward
+				),
+				"info"
+			)
 			pcall(function()
 				voteFor:FireServer(bestIndex)
 			end)
+		else
+			logOnce("vote_none", "modifier vote: no option had a reward", "warn")
 		end
 	end)
 end)

@@ -60,12 +60,26 @@ function Session.new(hub, VindUI, Window, gameDef)
 		_logLines = {},
 	}, Session)
 
-	-- Plain closures so they can be passed around and called without a colon.
-	function self.Log(message, level)
+	-- These are plain closures, so both call styles must work:
+	--   session.Log("message")  (dot, used by the hub)
+	--   ctx:Log("message")      (colon, used by game modules, which passes the session first)
+	function self.Log(first, second, third)
+		local message, level
+		if first == self then
+			message, level = second, third
+		else
+			message, level = first, second
+		end
 		self:_log(message, level)
 	end
 
-	function self.Notify(text, kind, duration)
+	function self.Notify(first, second, third, fourth)
+		local text, kind, duration
+		if first == self then
+			text, kind, duration = second, third, fourth
+		else
+			text, kind, duration = first, second, third
+		end
 		self.VindUI:Notify({
 			Title = self.Game and self.Game.Name or self.Hub.Name,
 			Text = tostring(text),

@@ -122,6 +122,8 @@ local Settings = {
 	KillRange = 60,
 	AutoDash = false,
 	DashOnlyWithEnemies = false,
+	LowHpRetreat = false,
+	LowHpThreshold = 35,
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
@@ -554,6 +556,46 @@ local function autoPickupStep()
 	logOnce("pickup_ok", "auto pickup: picked up and threw an object", "info")
 end
 
+local nextRetreatAt = 0
+
+local function lowHpStep()
+	if not Settings.LowHpRetreat then
+		return
+	end
+	local now = os.clock()
+	local humanoid = getHumanoid()
+	local myRoot = getRootPart()
+	if not humanoid or not myRoot or humanoid.Health <= 0 then
+		return
+	end
+	local percent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
+	if percent > Settings.LowHpThreshold or now < nextRetreatAt then
+		return
+	end
+	nextRetreatAt = now + 5
+	local noob = nearestNoob()
+	local away
+	if noob then
+		local diff = myRoot.Position - noob.Position
+		if diff.Magnitude > 0.1 then
+			away = diff.Unit
+		end
+	end
+	if not away then
+		away = -myRoot.CFrame.LookVector
+	end
+	away = Vector3.new(away.X, 0, away.Z)
+	if away.Magnitude > 0.1 then
+		humanoid:MoveTo(myRoot.Position + away.Unit * 30)
+	end
+	-- Native dash away, then a small best-effort heal (the server owns real health).
+	pressKey(Enum.KeyCode.Q)
+	pcall(function()
+		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 10)
+	end)
+	ctx:Log(string.format("[NI] low hp: retreating and healing at %.0f%% health", percent), "warn")
+end
+
 local function autoDashStep()
 	local now = os.clock()
 	if now < nextDashAt then
@@ -867,6 +909,30 @@ Player:AddToggle({
 	end,
 })
 Player:AddToggle({
+	Text = "Low HP Retreat",
+	Description = "Dashes away from noobs and heals a bit when health is low",
+	Icon = "Lucide:heart-pulse",
+	Default = false,
+	Flag = "ni_low_hp",
+	Callback = function(value)
+		Settings.LowHpRetreat = value
+	end,
+})
+Player:AddSlider({
+	Text = "Low HP Threshold",
+	Description = "Health percent that triggers the retreat",
+	Icon = "Lucide:gauge",
+	Min = 10,
+	Max = 80,
+	Default = 35,
+	Increment = 5,
+	Suffix = "%",
+	Flag = "ni_low_hp_pct",
+	Callback = function(value)
+		Settings.LowHpThreshold = value
+	end,
+})
+Player:AddToggle({
 	Text = "Godmode",
 	Description = "Keeps health and shield topped up",
 	Icon = "Lucide:shield",
@@ -1108,6 +1174,9 @@ task.spawn(function()
 		if Settings.AutoSprint then
 			setSprint(true)
 		end
+		if Settings.LowHpRetreat then
+			pcall(lowHpStep)
+		end
 		if Settings.InfiniteJump then
 			local humanoid = getHumanoid()
 			if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
@@ -1177,6 +1246,7 @@ ctx:OnCleanup(function()
 	Settings.AutoKillAll = false
 	Settings.AutoDash = false
 	Settings.DashOnlyWithEnemies = false
+	Settings.LowHpRetreat = false
 	Settings.AutoPickup = false
 	Settings.AutoPerkOffer = false
 	Settings.HitAnyDirection = false

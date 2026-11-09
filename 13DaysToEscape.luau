@@ -191,6 +191,8 @@ local Settings = {
 	AutoCash = false,
 	AutoBooks = false,
 	BreakCameras = false,
+	TrashPickup = false,
+	TrashRange = 12,
 }
 
 ---------------------------------------------------------------------
@@ -390,6 +392,7 @@ end
 -- Prompt references are cached so a per-tick pass never walks the whole map.
 local cashPrompts = {}
 local takeBookPrompts = {}
+local yardPickupPrompts = {}
 local libraryJobPrompt = nil
 
 local function trackPrompt(instance)
@@ -400,6 +403,8 @@ local function trackPrompt(instance)
 		cashPrompts[instance] = true
 	elseif instance.Name == "TakeBook" then
 		takeBookPrompts[instance] = true
+	elseif instance.Name == "YardPickup" then
+		yardPickupPrompts[instance] = true
 	elseif instance.Name == "LibraryJob" then
 		libraryJobPrompt = instance
 	end
@@ -451,6 +456,7 @@ end)
 local nextCashAt = 0
 local nextBookAt = 0
 local nextBookReturnAt = 0
+local nextTrashAt = 0
 local lastCashTry = {}
 
 local function cashStep()
@@ -541,6 +547,59 @@ local function bookStep()
 		end
 	end
 	nextBookAt = now + 0.5
+end
+
+local function promptPosition(prompt)
+	local parent = prompt.Parent
+	if not parent then
+		return nil
+	end
+	if parent:IsA("BasePart") then
+		return parent.Position
+	end
+	if parent:IsA("Model") then
+		return parent:GetPivot().Position
+	end
+	return nil
+end
+
+local function trashStep()
+	if not actionsUnblocked() then
+		return
+	end
+	if LocalPlayer:GetAttribute("YardJobAvailable") ~= true or LocalPlayer:GetAttribute("YardJobDone") == true then
+		return
+	end
+	if (tonumber(LocalPlayer:GetAttribute("YardLitterCount")) or 0) >= 8 then
+		return
+	end
+	local myRoot = getRootPart()
+	if not myRoot then
+		return
+	end
+	local now = os.clock()
+	if now < nextTrashAt then
+		return
+	end
+	nextTrashAt = now + 0.3
+	local best, bestDistance = nil, Settings.TrashRange
+	for prompt in pairs(yardPickupPrompts) do
+		if prompt:IsDescendantOf(workspace) then
+			local position = promptPosition(prompt)
+			if position then
+				local distance = (position - myRoot.Position).Magnitude
+				if distance <= bestDistance then
+					best, bestDistance = prompt, distance
+				end
+			end
+		else
+			yardPickupPrompts[prompt] = nil
+		end
+	end
+	if best then
+		best.Enabled = true
+		triggerPrompt(best)
+	end
 end
 
 ---------------------------------------------------------------------
@@ -981,6 +1040,32 @@ Farm:AddToggle({
 	end,
 })
 
+Farm:AddSection("Yard", "Lucide:trash-2")
+Farm:AddToggle({
+	Text = "Auto Pickup Trash",
+	Description = "Collects trash litter near you during the yard job",
+	Icon = "Lucide:trash-2",
+	Default = false,
+	Flag = "13de_auto_trash",
+	Callback = function(value)
+		Settings.TrashPickup = value
+	end,
+})
+Farm:AddSlider({
+	Text = "Trash Range",
+	Description = "How close litter must be before it is collected",
+	Icon = "Lucide:target",
+	Min = 3,
+	Max = 30,
+	Default = 12,
+	Increment = 1,
+	Suffix = " studs",
+	Flag = "13de_trash_range",
+	Callback = function(value)
+		Settings.TrashRange = value
+	end,
+})
+
 Farm:AddSection("Library", "Lucide:scroll-text")
 Farm:AddToggle({
 	Text = "Auto Farm Books",
@@ -1295,6 +1380,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.TrashPickup then
+			pcall(trashStep)
+		end
+		task.wait(0.15)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	if Settings.SpeedBoost then
 		local humanoid = character:WaitForChild("Humanoid", 5)
@@ -1316,6 +1410,7 @@ ctx:OnCleanup(function()
 	Settings.ShowSchedule = false
 	Settings.AutoCash, Settings.AutoBooks = false, false
 	Settings.BreakCameras = false
+	Settings.TrashPickup = false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

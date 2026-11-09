@@ -1308,15 +1308,31 @@ local function selectWeapon(weaponName)
 			return
 		end
 		if not (pickScreen and pickScreen.Enabled) then
-			ctx:Log("[NI] weapon: the WeaponPick screen is not open, pick from the lobby", "warn")
+			ctx:Log("[NI] weapon: the game only allows picking on the WeaponPick screen", "warn")
 		else
-			ctx:Log("[NI] weapon unchanged (" .. tostring(after) .. ") - not owned or rejected", "warn")
+			ctx:Log("[NI] weapon unchanged (" .. tostring(after) .. ") - server rejected the pick", "warn")
 		end
 	end)
 	return true
 end
 
 Player:AddSection("Weapon", "Lucide:swords")
+-- The game only accepts a weapon pick while its WeaponPick screen is open (before the
+-- match starts), so keep watching for that moment and apply the saved choice then.
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.WeaponPick and Settings.WeaponPick ~= "" then
+			local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+			local pickScreen = playerGui and playerGui:FindFirstChild("WeaponPick")
+			if pickScreen and pickScreen.Enabled and LocalPlayer:GetAttribute("Weapon") ~= Settings.WeaponPick then
+				selectWeapon(Settings.WeaponPick)
+				task.wait(2)
+			end
+		end
+		task.wait(0.5)
+	end
+end)
+
 Player:AddDropdown({
 	Text = "Weapon",
 	Description = "Selects your weapon through the game's select screen",

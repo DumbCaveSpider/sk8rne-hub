@@ -23,6 +23,7 @@ end
 
 local PrisonSchedule = tryRequire("PrisonSchedule")
 local OJTrade = tryRequire("OJTrade")
+local SecurityCameraDamage = tryRequire("SecurityCameraDamage")
 
 -- Tool categories and cooldowns, matching the game's UtensilConfig.
 local DIG_TOOLS = { Spoon = true, Trowel = true, Drill = true }
@@ -189,6 +190,7 @@ local Settings = {
 	ShowSchedule = false,
 	AutoCash = false,
 	AutoBooks = false,
+	BreakCameras = false,
 }
 
 ---------------------------------------------------------------------
@@ -504,6 +506,44 @@ local function bookStep()
 		end
 	end
 	nextBookAt = now + 0.5
+end
+
+---------------------------------------------------------------------
+-- Cameras
+---------------------------------------------------------------------
+
+-- SecurityCameraDamage is shared, so breakModel runs on the client too: it sets the attributes
+-- the camera and surveillance scripts read and visually wrecks the model (locally only).
+local function breakCamera(cameraModel)
+	if SecurityCameraDamage and SecurityCameraDamage.breakModel then
+		local ok, broke = pcall(SecurityCameraDamage.breakModel, cameraModel)
+		if ok then
+			return broke
+		end
+	end
+	pcall(function()
+		cameraModel:SetAttribute("Enabled", false)
+		cameraModel:SetAttribute("SecurityCameraBroken", true)
+		cameraModel:SetAttribute("CameraVisibleUntil", 0)
+		cameraModel:SetAttribute("CameraAlertUntil", 0)
+	end)
+	return true
+end
+
+local function cameraStep()
+	local island = workspace:FindFirstChild("PrisonIsland")
+	local folder = island and island:FindFirstChild("SecurityCameras")
+	if not folder then
+		return
+	end
+	for _, cameraModel in ipairs(folder:GetChildren()) do
+		if
+			cameraModel:GetAttribute("SecurityCameraManaged") == true
+			and not cameraModel:GetAttribute("SecurityCameraBroken")
+		then
+			breakCamera(cameraModel)
+		end
+	end
 end
 
 ---------------------------------------------------------------------
@@ -982,6 +1022,16 @@ Visuals:AddToggle({
 		Settings.CameraEsp = value
 	end,
 })
+Visuals:AddToggle({
+	Text = "Break Cameras",
+	Description = "Marks every security camera broken on your client",
+	Icon = "Lucide:camera",
+	Default = false,
+	Flag = "13de_break_cameras",
+	Callback = function(value)
+		Settings.BreakCameras = value
+	end,
+})
 
 Visuals:AddSection("Warden", "Lucide:ghost")
 Visuals:AddToggle({
@@ -1201,6 +1251,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.BreakCameras then
+			pcall(cameraStep)
+		end
+		task.wait(0.5)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	if Settings.SpeedBoost then
 		local humanoid = character:WaitForChild("Humanoid", 5)
@@ -1221,6 +1280,7 @@ ctx:OnCleanup(function()
 	Settings.AutoKillTarget = false
 	Settings.ShowSchedule = false
 	Settings.AutoCash, Settings.AutoBooks = false, false
+	Settings.BreakCameras = false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

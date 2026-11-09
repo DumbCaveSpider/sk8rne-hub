@@ -132,6 +132,7 @@ local Settings = {
 	LowHpThreshold = 35,
 	Disable3D = false,
 	WeaponPick = "Fists",
+	IdleNoCast = false,
 	AutoPickup = false,
 	PickupRange = 8,
 	AutoPerkOffer = false,
@@ -721,6 +722,9 @@ local function autoSuperStep()
 	if now < nextSuperAt then
 		return
 	end
+	if Settings.IdleNoCast and not nearestNoob() then
+		return
+	end
 	nextSuperAt = now + 4
 	-- F is the game's Super bind.
 	pressKey(Enum.KeyCode.F)
@@ -777,6 +781,9 @@ local nextAbilityCastAt = 0
 local function autoAbilityStep()
 	local now = os.clock()
 	if now < nextAbilityCastAt then
+		return
+	end
+	if Settings.IdleNoCast and not nearestNoob() then
 		return
 	end
 	local id = equippedMove()
@@ -1140,6 +1147,16 @@ Combat:AddToggle({
 	end,
 })
 Combat:AddToggle({
+	Text = "Cast Only With Enemies",
+	Description = "Skips auto super and auto ability when no noobs are alive",
+	Icon = "Lucide:users",
+	Default = false,
+	Flag = "ni_idle_no_cast",
+	Callback = function(value)
+		Settings.IdleNoCast = value
+	end,
+})
+Combat:AddToggle({
 	Text = "Auto Ability",
 	Description = "Casts whichever move you have equipped, on its own cooldown",
 	Icon = "Lucide:sparkles",
@@ -1424,6 +1441,7 @@ ctx:OnCleanup(function()
 	Settings.HitAnyDirection = false
 	Settings.AutoChase = false
 	Settings.AutoSuper = false
+	Settings.IdleNoCast = false
 	Settings.AutoAbilityPick = false
 	Settings.AutoRevive, Settings.EspNoob, Settings.EspBoss = false, false, false
 	for model, entry in pairs(espEntries) do

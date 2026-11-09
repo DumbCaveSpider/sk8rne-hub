@@ -547,6 +547,23 @@ local function autoAbilityStep()
 	logOnce("ability_cast_ok", "auto ability: using the equipped move", "info")
 end
 
+-- Tell the user when the equipped move isn't actually owned: the server ignores
+-- casts for moves the player has not bought, which looks like "auto ability is broken".
+task.spawn(function()
+	task.wait(3)
+	if not MovesModule then
+		ctx:Log("[NI] auto ability: Moves module not found", "warn")
+		return
+	end
+	local owned = MovesModule.owned(LocalPlayer)
+	local id = equippedMove()
+	local isOwned = owned[id] == true
+	ctx:Log(
+		string.format("[NI] auto ability: equipped=%s owned=%s", tostring(id), tostring(isOwned)),
+		isOwned and "info" or "warn"
+	)
+end)
+
 local nextDebugAt = 0
 local function debugStep()
 	if not Settings.DebugLogs then

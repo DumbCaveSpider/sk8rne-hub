@@ -196,6 +196,7 @@ local Settings = {
 	BookEsp = false,
 	AutoEscape = false,
 	MoneyEsp = false,
+	AutoSaw = false,
 }
 
 ---------------------------------------------------------------------
@@ -788,6 +789,63 @@ local function escapeStep()
 	end
 end
 
+local function getRaidWindow()
+	local cellNumber = LocalPlayer:GetAttribute("AssignedCellNumber") or 13
+	local island = workspace:FindFirstChild("PrisonIsland")
+	if not island then
+		return nil
+	end
+	for _, blockName in ipairs({ "CellBlockB", "CellBlockA" }) do
+		local block = island:FindFirstChild(blockName)
+		local cell = block and block:FindFirstChild("Cell" .. tostring(cellNumber))
+		local window = cell and cell:FindFirstChild("RaidWindow")
+		if window then
+			return window
+		end
+	end
+	return nil
+end
+
+local nextSawAt = 0
+
+local function sawStep()
+	if not actionsUnblocked() then
+		return
+	end
+	local now = os.clock()
+	if now < nextSawAt then
+		return
+	end
+	local window = getRaidWindow()
+	if not window then
+		return
+	end
+	local barsControl = window:FindFirstChild("BarsControl")
+	if window:GetAttribute("BarsOpen") ~= true then
+		local prompt = barsControl and barsControl:FindFirstChild("SawBarsPrompt")
+		if not (prompt and prompt:IsA("ProximityPrompt")) then
+			return
+		end
+		if getToolType() ~= "Saw" then
+			equipTool(findTool("Saw"))
+			nextSawAt = now + 0.5
+			return
+		end
+		prompt.Enabled = true
+		triggerPrompt(prompt)
+		nextSawAt = now + 3.4 -- the saw prompt holds for 3.2s per cut
+		return
+	end
+	-- Bars are cut through: climb out of the window.
+	local climbControl = window:FindFirstChild("ClimbControl")
+	local climbPrompt = climbControl and climbControl:FindFirstChildWhichIsA("ProximityPrompt")
+	if climbPrompt then
+		climbPrompt.Enabled = true
+		triggerPrompt(climbPrompt)
+		nextSawAt = now + 1.5
+	end
+end
+
 ---------------------------------------------------------------------
 -- Cameras
 ---------------------------------------------------------------------
@@ -1323,6 +1381,16 @@ Escape:AddToggle({
 		Settings.AutoEscape = value
 	end,
 })
+Escape:AddToggle({
+	Text = "Auto Saw Bars",
+	Description = "Equips the saw and cuts through your cell window bars",
+	Icon = "Lucide:scissors",
+	Default = false,
+	Flag = "13de_auto_saw",
+	Callback = function(value)
+		Settings.AutoSaw = value
+	end,
+})
 
 Escape:AddSection("Digging", "Lucide:shovel")
 Escape:AddToggle({
@@ -1761,6 +1829,15 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.AutoSaw then
+			pcall(sawStep)
+		end
+		task.wait(0.2)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	if Settings.SpeedBoost then
 		local humanoid = character:WaitForChild("Humanoid", 5)
@@ -1784,6 +1861,7 @@ ctx:OnCleanup(function()
 	Settings.BreakCameras = false
 	Settings.TrashPickup = false
 	Settings.AutoEscape = false
+	Settings.AutoSaw = false
 	Settings.AutoChop, Settings.AutoPeel = false, false
 	chopToken = nil
 	chopCuts = 0

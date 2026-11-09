@@ -35,6 +35,8 @@ local Settings = {
 	TriggerLevers = false,
 	LeverEsp = false,
 	LeverRange = 120,
+	SafeZoneWaypoint = false,
+	DestroyMetalDoors = false,
 }
 
 -- Debug logging: each key only logs once so the console stays readable.
@@ -379,6 +381,157 @@ local function waypointStep()
 		waypointHighlight.OutlineTransparency = 0
 		waypointHighlight.Adornee = adorn
 		waypointHighlight.Parent = adorn
+	end
+end
+
+---------------------------------------------------------------------
+-- Safe zone waypoint + metal doors
+---------------------------------------------------------------------
+
+local safeZoneGui = nil
+local safeZoneLabel = nil
+local safeEntranceGui = nil
+local safeEntranceLabel = nil
+
+local function findSaferoom()
+	for _, folderName in ipairs({ "Rooms", "SideRooms" }) do
+		local folder = workspace:FindFirstChild(folderName)
+		if folder then
+			for _, room in ipairs(folder:GetChildren()) do
+				local kind = room:GetAttribute("Room")
+				if kind == "Saferoom" or kind == "MayhemSaferoom" or room.Name == "Saferoom" then
+					return room
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function safeEntrancePart(room)
+	local holyDoor = room:FindFirstChild("HolyDoor", true)
+	if holyDoor then
+		local part = holyDoor:FindFirstChildWhichIsA("BasePart", true)
+		if part then
+			return part
+		end
+	end
+	return room:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function ensureSafeZoneGui()
+	if safeZoneGui then
+		return
+	end
+	safeZoneGui = Instance.new("BillboardGui")
+	safeZoneGui.Name = "Sk8rneSafeZone"
+	safeZoneGui.Size = UDim2.fromOffset(170, 44)
+	safeZoneGui.StudsOffset = Vector3.new(0, 6, 0)
+	safeZoneGui.AlwaysOnTop = true
+	safeZoneGui.Parent = overlay
+	safeZoneLabel = Instance.new("TextLabel")
+	safeZoneLabel.Size = UDim2.fromScale(1, 1)
+	safeZoneLabel.BackgroundTransparency = 1
+	safeZoneLabel.Font = Enum.Font.GothamBold
+	safeZoneLabel.TextSize = 14
+	safeZoneLabel.TextColor3 = Color3.fromRGB(120, 255, 180)
+	safeZoneLabel.TextStrokeTransparency = 0.35
+	safeZoneLabel.Text = "SAFE ZONE"
+	safeZoneLabel.Parent = safeZoneGui
+
+	safeEntranceGui = Instance.new("BillboardGui")
+	safeEntranceGui.Name = "Sk8rneSafeEntrance"
+	safeEntranceGui.Size = UDim2.fromOffset(170, 44)
+	safeEntranceGui.StudsOffset = Vector3.new(0, 5, 0)
+	safeEntranceGui.AlwaysOnTop = true
+	safeEntranceGui.Parent = overlay
+	safeEntranceLabel = Instance.new("TextLabel")
+	safeEntranceLabel.Size = UDim2.fromScale(1, 1)
+	safeEntranceLabel.BackgroundTransparency = 1
+	safeEntranceLabel.Font = Enum.Font.GothamBold
+	safeEntranceLabel.TextSize = 14
+	safeEntranceLabel.TextColor3 = Color3.fromRGB(120, 220, 255)
+	safeEntranceLabel.TextStrokeTransparency = 0.35
+	safeEntranceLabel.Text = "SAFE ZONE ENTRANCE"
+	safeEntranceLabel.Parent = safeEntranceGui
+end
+
+local function removeSafeZone()
+	if safeZoneGui then
+		safeZoneGui:Destroy()
+		safeZoneGui = nil
+		safeZoneLabel = nil
+	end
+	if safeEntranceGui then
+		safeEntranceGui:Destroy()
+		safeEntranceGui = nil
+		safeEntranceLabel = nil
+	end
+end
+
+local function safeZoneStep()
+	local room = findSaferoom()
+	if not room then
+		removeSafeZone()
+		return
+	end
+	local myRoot = getRootPart()
+	local pivot = room:GetPivot().Position
+	local distance = myRoot and (pivot - myRoot.Position).Magnitude or 0
+	if distance <= 12 then
+		removeSafeZone()
+		logOnce("safezone_inside", "safe zone: you are inside", "info")
+		return
+	end
+	ensureSafeZoneGui()
+	safeZoneGui.Adornee = room
+	safeZoneLabel.Text = string.format("SAFE ZONE\n%d studs", math.floor(distance))
+	local entrance = safeEntrancePart(room)
+	if entrance then
+		safeEntranceGui.Adornee = entrance
+		safeEntranceGui.Enabled = true
+		local entranceDistance = myRoot and (entrance.Position - myRoot.Position).Magnitude or 0
+		safeEntranceLabel.Text = string.format("SAFE ZONE ENTRANCE\n%d studs", math.floor(entranceDistance))
+	else
+		safeEntranceGui.Enabled = false
+	end
+	logOnce("safezone_found", "safe zone: targeting " .. room:GetFullName(), "info")
+end
+
+local function findBlastDoors()
+	local found = {}
+	for _, folderName in ipairs({ "Rooms", "SideRooms" }) do
+		local folder = workspace:FindFirstChild(folderName)
+		if folder then
+			for _, descendant in ipairs(folder:GetDescendants()) do
+				if descendant.Name == "Door" and (descendant:GetAttribute("BlastDoor") or (descendant.Parent and descendant.Parent:GetAttribute("BlastDoor"))) then
+					table.insert(found, descendant)
+				end
+			end
+		end
+	end
+	return found
+end
+
+-- ForceOpen is the same remote the game's slide-into-blast-door move uses.
+local function destroyMetalDoors()
+	local events = ReplicatedStorage:FindFirstChild("Events")
+	local forceOpen = events and events:FindFirstChild("ForceOpen")
+	local doors = findBlastDoors()
+	for _, door in ipairs(doors) do
+		if forceOpen then
+			pcall(function()
+				forceOpen:FireServer(door, true)
+			end)
+		end
+		if door:GetAttribute("Open") ~= true then
+			pcall(function()
+				door:SetAttribute("Open", true)
+			end)
+		end
+	end
+	if #doors > 0 then
+		logOnce("metaldoor_ok", string.format("metal doors: destroying %d blast door(s)", #doors), "info")
 	end
 end
 
@@ -1001,6 +1154,29 @@ Visuals:AddToggle({
 		end
 	end,
 })
+Visuals:AddToggle({
+	Text = "Safe Zone Waypoint",
+	Description = "Shows the saferoom and its entrance",
+	Icon = "Lucide:home",
+	Default = false,
+	Flag = "gr_safe_zone_waypoint",
+	Callback = function(value)
+		Settings.SafeZoneWaypoint = value
+		if not value then
+			removeSafeZone()
+		end
+	end,
+})
+Visuals:AddToggle({
+	Text = "Destroy Metal Doors",
+	Description = "Force-opens every metal/blast door",
+	Icon = "Lucide:door-open",
+	Default = false,
+	Flag = "gr_destroy_metal_doors",
+	Callback = function(value)
+		Settings.DestroyMetalDoors = value
+	end,
+})
 
 Events:AddSection("Event Notifier", "Lucide:alert-triangle")
 Events:AddToggle({
@@ -1182,6 +1358,24 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.SafeZoneWaypoint then
+			pcall(safeZoneStep)
+		end
+		task.wait(0.3)
+	end
+end)
+
+task.spawn(function()
+	while ctx:Alive() do
+		if Settings.DestroyMetalDoors then
+			pcall(destroyMetalDoors)
+		end
+		task.wait(0.5)
+	end
+end)
+
 ctx:Connect(LocalPlayer.CharacterAdded, function(character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	if humanoid then
@@ -1207,6 +1401,8 @@ ctx:OnCleanup(function()
 	Settings.CounterAttack = false
 	Settings.BestModifier = false
 	Settings.TriggerLevers, Settings.LeverEsp = false, false
+	Settings.SafeZoneWaypoint, Settings.DestroyMetalDoors = false, false
+	removeSafeZone()
 	if parryAttachment then
 		parryAttachment:Destroy()
 		parryAttachment = nil

@@ -427,6 +427,9 @@ local function triggerPrompt(prompt)
 	if not prompt then
 		return false
 	end
+	-- Enable first: the game disables prompts while they are off-screen, and
+	-- fireproximityprompt ignores a disabled prompt.
+	prompt.Enabled = true
 	if type(fireproximityprompt) == "function" then
 		local ok = pcall(fireproximityprompt, prompt)
 		if ok then
@@ -434,15 +437,42 @@ local function triggerPrompt(prompt)
 		end
 	end
 	pcall(function()
-		local wasEnabled = prompt.Enabled
-		prompt.Enabled = true
 		prompt:InputHoldBegin()
 		task.delay(math.max(0.05, (prompt.HoldDuration or 0) + 0.05), function()
 			pcall(prompt.InputHoldEnd, prompt)
-			prompt.Enabled = wasEnabled
 		end)
 	end)
 	return true
+end
+
+local function cashAmount(prompt)
+	local text = prompt.ObjectText or ""
+	return tonumber(text:match("%d+")) or 0
+end
+
+-- Prompts often live inside an Attachment (BookPickupPoint etc.) under the real part,
+-- so walk up the tree to the BasePart that should carry the marker.
+local function nearestPart(instance)
+	local current = instance
+	while current and current ~= workspace do
+		if current:IsA("BasePart") then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function promptPosition(prompt)
+	local part = nearestPart(prompt)
+	if part then
+		return part.Position
+	end
+	local parent = prompt.Parent
+	if parent and parent:IsA("Model") then
+		return parent:GetPivot().Position
+	end
+	return nil
 end
 
 -- The server reports the number of the book being read as this event's last argument.
@@ -466,27 +496,49 @@ local nextTrashAt = 0
 local lastCashTry = {}
 
 local function cashStep()
-	if not actionsUnblocked() then
+	if LocalPlayer:GetAttribute("RunEnded") or LocalPlayer:GetAttribute("DeathPresented") then
 		return
 	end
 	local now = os.clock()
 	if now < nextCashAt then
 		return
 	end
-	nextCashAt = now + 0.2
+	nextCashAt = now + 0.25
+	local myRoot = getRootPart()
+	if not myRoot then
+		return
+	end
+	local best, bestPart, bestDistance = nil, nil, math.huge
 	for prompt in pairs(cashPrompts) do
 		if prompt:IsDescendantOf(workspace) then
-			if prompt.ObjectText ~= "$0" and now - (lastCashTry[prompt] or 0) >= 3 then
-				lastCashTry[prompt] = now
-				if triggerPrompt(prompt) then
-					nextCashAt = now + 0.7
-					return
+			if cashAmount(prompt) > 0 then
+				local part = nearestPart(prompt)
+				if part then
+					local distance = (part.Position - myRoot.Position).Magnitude
+					if distance < bestDistance then
+						best, bestPart, bestDistance = prompt, part, distance
+					end
 				end
 			end
 		else
 			cashPrompts[prompt] = nil
 			lastCashTry[prompt] = nil
 		end
+	end
+	if not best then
+		return
+	end
+	if bestDistance > 7 then
+		local humanoid = getHumanoid()
+		if humanoid then
+			humanoid:MoveTo(bestPart.Position)
+		end
+		return
+	end
+	if now - (lastCashTry[best] or 0) >= 3 then
+		lastCashTry[best] = now
+		triggerPrompt(best)
+		nextCashAt = now + 0.7
 	end
 end
 
@@ -553,31 +605,6 @@ local function bookStep()
 		end
 	end
 	nextBookAt = now + 0.5
-end
-
--- Prompts often live inside an Attachment (BookPickupPoint etc.) under the real part,
--- so walk up the tree to the BasePart that should carry the marker.
-local function nearestPart(instance)
-	local current = instance
-	while current and current ~= workspace do
-		if current:IsA("BasePart") then
-			return current
-		end
-		current = current.Parent
-	end
-	return nil
-end
-
-local function promptPosition(prompt)
-	local part = nearestPart(prompt)
-	if part then
-		return part.Position
-	end
-	local parent = prompt.Parent
-	if parent and parent:IsA("Model") then
-		return parent:GetPivot().Position
-	end
-	return nil
 end
 
 local function trashStep()
@@ -923,8 +950,8 @@ local function updateMoneyHighlights()
 	if Settings.MoneyEsp then
 		for prompt in pairs(cashPrompts) do
 			if prompt:IsDescendantOf(workspace) then
-				local amount = prompt.ObjectText or ""
-				if amount ~= "" and amount ~= "$0" then
+				local amount = cashAmount(prompt)
+				if amount > 0 and os.clock() - (lastCashTry[prompt] or 0) >= 1.5 then
 					local part = nearestPart(prompt)
 					if part then
 						keep[part] = true
@@ -1074,13 +1101,13 @@ local function collectEspTargets()
 	if Settings.MoneyEsp then
 		for prompt in pairs(cashPrompts) do
 			if prompt:IsDescendantOf(workspace) then
-				local amount = prompt.ObjectText or ""
-				if amount ~= "" and amount ~= "$0" then
+				local amount = cashAmount(prompt)
+				if amount > 0 and os.clock() - (lastCashTry[prompt] or 0) >= 1.5 then
 					local part = nearestPart(prompt)
 					if part then
 						local distance = (part.Position - myRoot.Position).Magnitude
 						if distance <= Settings.EspDistance then
-							add(part, "Money", string.format("MONEY %s\n%d studs", amount, math.floor(distance)))
+							add(part, "Money", string.format("MONEY $%d\n%d studs", amount, math.floor(distance)))
 						end
 					end
 				end

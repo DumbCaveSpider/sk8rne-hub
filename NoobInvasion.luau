@@ -400,7 +400,9 @@ local function autoChaseStep()
 	local topSpeed = math.min(Settings.ChaseSpeed, 40)
 	local approach = math.clamp((direction.Magnitude - Settings.ChaseStop) / 15, 0.15, 1)
 	local desiredSpeed = math.max(8, topSpeed * approach)
-	if humanoid.WalkSpeed ~= desiredSpeed then
+	-- Leave the speed alone while Speed Boost is on so sprinting keeps working;
+	-- the chase then only steers toward the target.
+	if not Settings.SpeedOn and humanoid.WalkSpeed ~= desiredSpeed then
 		humanoid.WalkSpeed = desiredSpeed
 		chaseSpeedApplied = true
 	end
@@ -430,17 +432,17 @@ local function autoDashStep()
 	if not myRoot or not humanoid then
 		return
 	end
+	nextDashAt = now + 1.2
+	-- Dash regardless of range; steer away from a noob when one is close enough.
 	local noob, distance = nearestNoob()
-	if not noob or distance > Settings.DashRange then
-		return
-	end
-	nextDashAt = now + 1
-	local away = myRoot.Position - noob.Position
-	if away.Magnitude > 0.1 then
-		humanoid:MoveTo(myRoot.Position + away.Unit * 25)
+	if noob and distance and distance <= Settings.DashRange then
+		local away = myRoot.Position - noob.Position
+		if away.Magnitude > 0.1 then
+			humanoid:MoveTo(myRoot.Position + away.Unit * 25)
+		end
 	end
 	fireRemote("Attack", "dash")
-	logOnce("dash_ok", "auto dash: dodging an incoming noob", "info")
+	logOnce("dash_ok", "auto dash: dashing", "info")
 end
 
 -- Auto-pick perks only when the SERVER sends an offer. Nothing is fired client-side.

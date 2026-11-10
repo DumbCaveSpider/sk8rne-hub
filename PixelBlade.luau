@@ -647,24 +647,37 @@ local function pickFarmTarget()
 	if not myRoot then
 		return nil
 	end
+	local now = os.clock()
+	local best, bestDistance = nil, math.huge
 	-- Prefer something the game itself marks as an enemy; only fall back to the broader
 	-- scan (distant, no nameplate yet) when nothing nearby is marked.
 	local hostile, hostileDistance = nearestHostile(Settings.FarmRange)
 	if hostile then
-		return hostile, hostileDistance
-	end
-	scanEnemies()
-	local now = os.clock()
-	local best, bestDistance = nil, math.huge
-	for _, model in ipairs(enemyCache) do
-		if model.Parent and (farmBlacklist[model] or 0) < now then
-			local humanoid = model:FindFirstChildOfClass("Humanoid")
-			local root = model:FindFirstChild("HumanoidRootPart")
-			if humanoid and root and humanoid.Health > 0 then
-				local distance = (root.Position - myRoot.Position).Magnitude
-				if distance <= Settings.FarmRange and distance < bestDistance then
-					best, bestDistance = model, distance
+		best, bestDistance = hostile, hostileDistance
+	else
+		scanEnemies()
+		for _, model in ipairs(enemyCache) do
+			if model.Parent and (farmBlacklist[model] or 0) < now then
+				local humanoid = model:FindFirstChildOfClass("Humanoid")
+				local root = model:FindFirstChild("HumanoidRootPart")
+				if humanoid and root and humanoid.Health > 0 then
+					local distance = (root.Position - myRoot.Position).Magnitude
+					if distance <= Settings.FarmRange and distance < bestDistance then
+						best, bestDistance = model, distance
+					end
 				end
+			end
+		end
+	end
+	-- Hysteresis: two roughly equidistant enemies used to flip the target on every tick,
+	-- which kept resetting the progress timer so the stuck recovery never fired.
+	if farmTarget and farmTarget.Parent and best ~= farmTarget then
+		local humanoid = farmTarget:FindFirstChildOfClass("Humanoid")
+		local root = farmTarget:FindFirstChild("HumanoidRootPart")
+		if humanoid and humanoid.Health > 0 and root and (farmBlacklist[farmTarget] or 0) < now then
+			local currentDistance = (root.Position - myRoot.Position).Magnitude
+			if currentDistance <= Settings.FarmRange and currentDistance <= bestDistance + 6 then
+				return farmTarget, currentDistance
 			end
 		end
 	end

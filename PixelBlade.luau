@@ -9,6 +9,7 @@ local task = ctx.task
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PathfindingService = game:GetService("PathfindingService")
 local LocalPlayer = Players.LocalPlayer
 
 local function getCharacter()
@@ -660,6 +661,69 @@ local function walkTowardPoint(position)
 	setMoveKey("A", rightAmount < -0.25)
 end
 
+local farmPath = nil
+local farmWaypointIndex = 1
+local farmPathTarget = nil
+local farmLastRepathAt = 0
+local farmStuckCount = 0
+
+local function clearFarmPath()
+	farmPath = nil
+	farmWaypointIndex = 1
+	farmPathTarget = nil
+	farmLastRepathAt = 0
+end
+
+local function buildFarmPath(targetPosition)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return false
+	end
+	local path = PathfindingService:CreatePath({
+		AgentRadius = 3,
+		AgentHeight = 5,
+		AgentCanJump = true,
+		AgentJumpHeight = 7,
+		AgentMaxSlope = 45,
+	})
+	local ok = pcall(function()
+		path:ComputeAsync(myRoot.Position, targetPosition)
+	end)
+	if not ok or path.Status ~= Enum.PathStatus.Success then
+		clearFarmPath()
+		return false
+	end
+	farmPath = path
+	farmWaypointIndex = 2
+	farmPathTarget = targetPosition
+	return true
+end
+
+-- Walk the current path one waypoint at a time instead of beelining into a wall.
+local function farmWalkPath()
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not myRoot or not farmPath then
+		return false
+	end
+	local waypoints = farmPath:GetWaypoints()
+	if not waypoints or farmWaypointIndex > #waypoints then
+		clearFarmPath()
+		return false
+	end
+	local waypoint = waypoints[farmWaypointIndex]
+	if waypoint.Action == Enum.PathWaypointAction.Jump and humanoid then
+		humanoid.Jump = true
+	end
+	local flat = Vector3.new(waypoint.Position.X - myRoot.Position.X, 0, waypoint.Position.Z - myRoot.Position.Z)
+	if flat.Magnitude < 3 then
+		farmWaypointIndex = farmWaypointIndex + 1
+		return true
+	end
+	walkTowardPoint(waypoint.Position)
+	return true
+end
+
 local function autoFarmStep()
 	local myRoot = getRootPart()
 	local humanoid = getHumanoid()
@@ -679,6 +743,7 @@ local function autoFarmStep()
 	if not enemy or not distance then
 		releaseMoveKeys()
 		farmTarget = nil
+		clearFarmPath()
 		if farmNoEnemySince == 0 then
 			farmNoEnemySince = now
 		end
@@ -709,22 +774,48 @@ local function autoFarmStep()
 		farmTarget = enemy
 		farmLastPos = myRoot.Position
 		farmLastProgressAt = now
+		farmStuckCount = 0
+		clearFarmPath()
 	elseif now - farmLastProgressAt > 1.5 and distance > Settings.FarmStop then
-		-- Stuck: give up on this one for a while and try a different target.
-		farmBlacklist[enemy] = now + 6
-		farmTarget = nil
-		farmLastPos = nil
+		-- Stuck against geometry: drop the path, hop, and re-plan before giving up on the
+		-- target. Only blacklist it after several failed re-plans.
+		farmStuckCount = farmStuckCount + 1
 		farmLastProgressAt = now
-		releaseMoveKeys()
+		clearFarmPath()
 		if humanoid then
 			humanoid.Jump = true
 		end
-		ctx:Log("[PB] auto farm: stuck on " .. tostring(enemy.Name) .. ", switching target", "warn")
+		if farmStuckCount >= 3 then
+			farmBlacklist[enemy] = now + 6
+			farmTarget = nil
+			farmLastPos = nil
+			farmStuckCount = 0
+			releaseMoveKeys()
+			ctx:Log("[PB] auto farm: stuck on " .. tostring(enemy.Name) .. ", switching target", "warn")
+		else
+			ctx:Log("[PB] auto farm: stuck, re-planning the path", "warn")
+		end
 		return
 	end
 
 	if distance > Settings.FarmStop then
-		farmWalkTo(enemy)
+		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+		if enemyRoot then
+			local targetPos = enemyRoot.Position
+			local needsRepath = not farmPath
+				or (farmPathTarget and (targetPos - farmPathTarget).Magnitude > 10)
+				or now - farmLastRepathAt > 1.5
+			if needsRepath then
+				farmLastRepathAt = now
+				buildFarmPath(targetPos)
+			end
+			if not (farmPath and farmWalkPath()) then
+				-- Pathfinding unavailable here: walk straight at it as a last resort.
+				farmWalkTo(enemy)
+			end
+		else
+			farmWalkTo(enemy)
+		end
 	else
 		releaseMoveKeys()
 	end

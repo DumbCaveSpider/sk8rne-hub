@@ -59,6 +59,8 @@ local Settings = {
 	FarmRange = 150,
 	AutoPotion = false,
 	PotionPercent = 40,
+	AutoDanger = false,
+	DangerPercent = 25,
 	SpeedOn = false,
 	Speed = 30,
 	JumpOn = false,
@@ -449,6 +451,10 @@ local function autoParryStep()
 end
 
 local function autoAttackStep()
+	if dangerActive then
+		setAttack(false)
+		return
+	end
 	local myRoot = getRootPart()
 	local enemy = nearestHostile(Settings.AttackRange)
 	if not enemy or not myRoot then
@@ -763,6 +769,8 @@ local farmWaypointIndex = 1
 local farmPathTarget = nil
 local farmLastRepathAt = 0
 local farmStuckCount = 0
+-- Set while health is critically low: the farm and attacks back off so the retreat can work.
+local dangerActive = false
 
 local function clearFarmPath()
 	farmPath = nil
@@ -828,9 +836,10 @@ local function autoFarmStep()
 		return
 	end
 	local now = os.clock()
-
-	-- Progress tracking: if the character stops moving while chasing, hop and drop the
-	-- target so it does not grind against a wall forever.
+	if dangerActive then
+		releaseMoveKeys()
+		return
+	end
 	if farmLastPos and (myRoot.Position - farmLastPos).Magnitude > 1.5 then
 		farmLastPos = myRoot.Position
 		farmLastProgressAt = now
@@ -1014,6 +1023,21 @@ local function infiniteJumpStep()
 	end
 end
 
+-- Drinking goes through the game's own input signal; pressing the number key only works
+-- when the window has focus, which is why the key-only version did nothing.
+local function usePotion(slot)
+	local input = getInput()
+	if input and input.use_potion then
+		local ok = pcall(function()
+			input.use_potion:Fire(slot or 1)
+		end)
+		if ok then
+			return true
+		end
+	end
+	return pressKey(keyCodes.One)
+end
+
 local nextPotionAt = 0
 local function autoPotionStep()
 	local now = os.clock()
@@ -1029,8 +1053,60 @@ local function autoPotionStep()
 		return
 	end
 	nextPotionAt = now + 2
-	pressKey(keyCodes.One)
+	usePotion(1)
 	logOnce("potion_ok", "auto potion: drinking while low", "info")
+end
+
+local nextDangerAt = 0
+local dangerLogged = false
+
+local function dangerStep()
+	local humanoid = getHumanoid()
+	local myRoot = getRootPart()
+	if not humanoid or not myRoot or humanoid.Health <= 0 then
+		return
+	end
+	local percent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
+	-- Hysteresis: trip at the danger threshold, only clear once health has recovered.
+	if percent <= Settings.DangerPercent then
+		dangerActive = true
+	elseif percent >= Settings.DangerPercent + 25 then
+		dangerActive = false
+		dangerLogged = false
+	end
+	if not dangerActive then
+		return
+	end
+	local now = os.clock()
+	if now < nextDangerAt then
+		return
+	end
+	nextDangerAt = now + 1.2
+	usePotion(1)
+	-- Get away from whatever is hitting us so the potion can actually tick.
+	local enemy = nearestHostile(Settings.FarmRange)
+	if enemy then
+		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+		if enemyRoot then
+			local away = myRoot.Position - enemyRoot.Position
+			away = Vector3.new(away.X, 0, away.Z)
+			if away.Magnitude > 0.1 then
+				local destination = myRoot.Position + away.Unit * 45
+				local rayParams = RaycastParams.new()
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				rayParams.FilterDescendantsInstances = { LocalPlayer.Character }
+				local floor = workspace:Raycast(destination + Vector3.new(0, 40, 0), Vector3.new(0, -120, 0), rayParams)
+				local landing = floor and floor.Position or destination
+				pcall(function()
+					myRoot.CFrame = CFrame.new(landing + Vector3.new(0, 3, 0))
+				end)
+			end
+		end
+	end
+	if not dangerLogged then
+		dangerLogged = true
+		ctx:Log(string.format("[PB] danger: retreated and drank a potion at %.0f%% health", percent), "warn")
+	end
 end
 
 ---------------------------------------------------------------------
@@ -1443,6 +1519,33 @@ Player:AddToggle({
 
 Player:AddSection("Survival", "Lucide:heart-pulse")
 Player:AddToggle({
+	Text = "Panic Retreat",
+	Description = "When health gets critical: drink a potion and teleport away",
+	Icon = "Lucide:heart-crack",
+	Default = false,
+	Flag = "pb_danger",
+	Callback = function(value)
+		Settings.AutoDanger = value
+		if not value then
+			dangerActive = false
+		end
+	end,
+})
+Player:AddSlider({
+	Text = "Panic HP",
+	Description = "Health percent that triggers the retreat",
+	Icon = "Lucide:gauge",
+	Min = 10,
+	Max = 60,
+	Default = 25,
+	Increment = 5,
+	Suffix = "%",
+	Flag = "pb_danger_pct",
+	Callback = function(value)
+		Settings.DangerPercent = value
+	end,
+})
+Player:AddToggle({
 	Text = "Auto Potion",
 	Description = "Drinks potion slot 1 when health is low",
 	Icon = "Lucide:flask-conical",
@@ -1767,6 +1870,9 @@ task.spawn(function()
 		if Settings.AutoPotion then
 			pcall(autoPotionStep)
 		end
+		if Settings.AutoDanger then
+			pcall(dangerStep)
+		end
 		if Settings.AutoBanner then
 			pcall(autoBannerStep)
 		end
@@ -1790,6 +1896,8 @@ ctx:OnCleanup(function()
 	Settings.EspEnemy = false
 	Settings.InfiniteEnergy = false
 	setInfiniteEnergy(false)
+	Settings.AutoDanger = false
+	dangerActive = false
 	setBlocking(false)
 	setAttack(false)
 	releaseMoveKeys()

@@ -762,6 +762,15 @@ local function autoChaseStep()
 		clearChasePath()
 		return
 	end
+	-- While the low HP retreat is disengaging, stop chasing: walking back in is what
+	-- killed the player right after the escape teleport.
+	if Settings.LowHpRetreat then
+		local healthPercent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
+		if healthPercent <= Settings.LowHpThreshold then
+			releaseMoveKeys()
+			return
+		end
+	end
 	-- Brake both the speed and the steering as the noob gets close. A very high top speed
 	-- covers several studs per tick and runs straight past the target, so it is capped
 	-- here even if the slider is pushed higher.
@@ -906,7 +915,7 @@ local function lowHpStep()
 	if percent > Settings.LowHpThreshold or now < nextRetreatAt then
 		return
 	end
-	nextRetreatAt = now + 4
+	nextRetreatAt = now + 0.7
 	-- Prefer a dropped medkit (noobs drop them); health itself is server-owned.
 	local medkit = findMedkit(80)
 	if medkit then
@@ -955,19 +964,9 @@ local function autoDashStep()
 	if not myRoot then
 		return
 	end
-	local before = myRoot.Position
 	-- Pressing Q runs the game's own DASH.go: it applies the LinearVelocity, plays the
 	-- animation and VFX, and fires the server dash, so this is the exact native dash.
 	pressKey(Enum.KeyCode.Q)
-	task.delay(0.4, function()
-		local after = getRootPart()
-		local moved = after and (after.Position - before).Magnitude or -1
-		ctx:Log(
-			string.format("[NI] auto dash: pressed Q | moved=%.1f studs", moved),
-			moved >= 3 and "info" or "warn"
-		)
-	end)
-	logOnce("dash_ok", "auto dash: pressing Q", "info")
 end
 
 -- Auto-pick perks only when the SERVER sends an offer. Nothing is fired client-side.

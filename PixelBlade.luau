@@ -862,52 +862,46 @@ end
 
 ---------------------------------------------------------------------
 -- Auto banner select
+-- Clicking the offered card is the only path that both picks the banner AND lets the
+-- client close its picker: the card handler fires banner_intents.pick_banner, which the
+-- banner_picker system then turns into network.select_banner plus its own UI teardown.
+-- Firing the remote directly picks server-side but leaves the GUI on screen.
 ---------------------------------------------------------------------
 
-local BANNER_NAMES = {
-	"Thorns",
-	"Element Circle",
-	"Health Boost",
-	"Critical Boost",
-	"Flame Element",
-	"Frost Element",
-	"Poison Element",
-	"Spirit Capacity",
-	"Rage Spirits",
-	"Life Steal",
-	"Stamina",
-	"Agility",
-	"Recovery",
-}
-
-local BANNER_ID_BY_NAME = {
-	["Thorns"] = "Thorns",
-	["Element Circle"] = "ElementCircle",
-	["Health Boost"] = "HealthBoost",
-	["Critical Boost"] = "CriticalBoost",
-	["Flame Element"] = "FlameElement",
-	["Frost Element"] = "FrostElement",
-	["Poison Element"] = "PoisonElement",
-	["Spirit Capacity"] = "SpiritCapacity",
-	["Rage Spirits"] = "RageSpirits",
-	["Life Steal"] = "LifeSteal",
-	["Stamina"] = "Stamina",
-	["Agility"] = "Agility",
-	["Recovery"] = "Recovery",
-}
-
-local function fireBanner(id)
-	local ok, network = pcall(function()
-		return require(ReplicatedStorage.src.network)
-	end)
-	if not ok or type(network) ~= "table" or not network.select_banner then
-		return false
+local function findBannerPicker()
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	if not playerGui then
+		return nil
 	end
-	pcall(function()
-		network.select_banner.fire(id)
-	end)
-	ctx:Log("[PB] banner: selected " .. tostring(id), "info")
-	return true
+	local direct = playerGui:FindFirstChild("banner_picker", true)
+	if direct then
+		return direct
+	end
+	for _, descendant in ipairs(playerGui:GetDescendants()) do
+		if descendant:IsA("ScreenGui") and descendant.Name:lower():find("banner", 1, true) then
+			return descendant
+		end
+	end
+	return nil
+end
+
+local function clickBannerCard(screen)
+	for _, descendant in ipairs(screen:GetDescendants()) do
+		if descendant:IsA("TextButton") and descendant.Visible then
+			local clicked = pcall(function()
+				firesignal(descendant.Activated)
+			end)
+			if not clicked then
+				clicked = pcall(function()
+					firesignal(descendant.MouseButton1Click)
+				end)
+			end
+			if clicked then
+				return descendant
+			end
+		end
+	end
+	return nil
 end
 
 local nextBannerAt = 0
@@ -916,41 +910,21 @@ local function autoBannerStep()
 	if now < nextBannerAt then
 		return
 	end
-	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-	local screen = playerGui and playerGui:FindFirstChild("banner_picker", true)
+	local screen = findBannerPicker()
 	if not screen then
 		return
 	end
 	if screen:IsA("ScreenGui") and not screen.Enabled then
 		return
 	end
-	-- Read which banners the picker is actually offering from its visible card labels.
-	local offered = {}
-	for _, descendant in ipairs(screen:GetDescendants()) do
-		if descendant:IsA("TextLabel") and descendant.Visible then
-			local text = string.upper(tostring(descendant.Text))
-			for name, id in pairs(BANNER_ID_BY_NAME) do
-				if text == string.upper(name) then
-					offered[id] = true
-				end
-			end
-		end
-	end
-	local choice = nil
-	local preferred = BANNER_ID_BY_NAME[Settings.BannerPick]
-	if preferred and offered[preferred] then
-		choice = preferred
+	-- Pick whichever card is on offer; no preference needed.
+	local card = clickBannerCard(screen)
+	if card then
+		nextBannerAt = now + 1.5
+		ctx:Log("[PB] banner: clicked an offered card", "info")
 	else
-		for id in pairs(offered) do
-			choice = id
-			break
-		end
+		nextBannerAt = now + 0.5
 	end
-	if not choice then
-		return
-	end
-	nextBannerAt = now + 1.5
-	fireBanner(choice)
 end
 
 ---------------------------------------------------------------------
@@ -1212,23 +1186,12 @@ Combat:AddSlider({
 Combat:AddSection("Banner", "Lucide:flag")
 Combat:AddToggle({
 	Text = "Auto Banner",
-	Description = "Picks a banner automatically when the picker appears",
+	Description = "Clicks whichever banner cards the picker offers",
 	Icon = "Lucide:flag",
 	Default = false,
 	Flag = "pb_auto_banner",
 	Callback = function(value)
 		Settings.AutoBanner = value
-	end,
-})
-Combat:AddDropdown({
-	Text = "Preferred Banner",
-	Description = "Falls back to the first offered banner if this one is not offered",
-	Icon = "Lucide:list",
-	Options = BANNER_NAMES,
-	Default = "Health Boost",
-	Flag = "pb_banner_pick",
-	Callback = function(value)
-		Settings.BannerPick = value
 	end,
 })
 

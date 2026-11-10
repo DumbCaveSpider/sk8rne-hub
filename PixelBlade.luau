@@ -799,13 +799,25 @@ local function autoFarmStep()
 		farmStuckCount = farmStuckCount + 1
 		farmLastProgressAt = now
 		clearFarmPath()
-		-- Pressing keys with no movement means the character is embedded in the room
-		-- geometry: a ray cast from inside a wall hits nothing, so the steering fan thinks
-		-- the way is clear. Lifting it frees it (a sideways nudge just pushes it into the
-		-- next wall).
-		pcall(function()
-			myRoot.CFrame = myRoot.CFrame + Vector3.new(0, 8, 0)
-		end)
+		-- Walking cannot get out of these room corners: the character ends up free of
+		-- geometry yet refuses to travel on the floor. Hop it toward the target and land it
+		-- on the first floor surface below, so the run keeps making progress.
+		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+		if enemyRoot then
+			local away = enemyRoot.Position - myRoot.Position
+			away = Vector3.new(away.X, 0, away.Z)
+			if away.Magnitude > 0.1 then
+				local hop = myRoot.Position + away.Unit * 12
+				local rayParams = RaycastParams.new()
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				rayParams.FilterDescendantsInstances = { LocalPlayer.Character }
+				local floor = workspace:Raycast(hop + Vector3.new(0, 30, 0), Vector3.new(0, -90, 0), rayParams)
+				local destination = floor and floor.Position or hop
+				pcall(function()
+					myRoot.CFrame = CFrame.new(destination + Vector3.new(0, 3, 0))
+				end)
+			end
+		end
 		if humanoid then
 			humanoid.Jump = true
 		end

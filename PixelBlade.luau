@@ -245,6 +245,35 @@ local NPC_MARKERS = {
 	AboveHeadDialouge = true,
 }
 
+-- When an enemy is converted to your side the game recolours its name tag title to
+-- Color3.fromRGB(0, 115, 207) and its health-bar fill to ally_health_fill_color
+-- (79, 160, 255) instead of health_fill_color (255, 103, 103). Both are client-visible,
+-- and the fill is re-evaluated every frame, so a conversion shows up immediately.
+local FRIENDLY_TAG_COLOR = Color3.fromRGB(0, 115, 207)
+local FRIENDLY_FILL_COLOR = Color3.fromRGB(79, 160, 255)
+
+local function colourClose(a, b)
+	return math.abs(a.R - b.R) < 0.03 and math.abs(a.G - b.G) < 0.03 and math.abs(a.B - b.B) < 0.03
+end
+
+local function isFriendlyEntity(model)
+	local nameTag = model:FindFirstChild("EnemyNameTag", true)
+	if nameTag then
+		local title = nameTag:FindFirstChild("title", true)
+		if title and title:IsA("TextLabel") and colourClose(title.TextColor3, FRIENDLY_TAG_COLOR) then
+			return true
+		end
+	end
+	local healthBar = model:FindFirstChild("EnemyHealthBar", true)
+	if healthBar then
+		local fill = healthBar:FindFirstChild("health_amount", true)
+		if fill and fill:IsA("GuiObject") and colourClose(fill.BackgroundColor3, FRIENDLY_FILL_COLOR) then
+			return true
+		end
+	end
+	return false
+end
+
 local function isEnemyModel(model)
 	if not model:IsA("Model") then
 		return false
@@ -260,6 +289,10 @@ local function isEnemyModel(model)
 		return false
 	end
 	if not model:FindFirstChild("HumanoidRootPart") then
+		return false
+	end
+	-- Converted enemies must be excluded from every scan, including the farm fallback.
+	if isFriendlyEntity(model) then
 		return false
 	end
 	-- Lobby/map content (dealers, tutorial NPCs) lives under workspace.map; real enemies
@@ -321,30 +354,7 @@ end
 -- distance 75 + cull margin 15), and an AttackWarningIndicator while they wind up. Melee
 -- range is well inside that, so requiring one of those markers means auto attack can only
 -- ever swing at something the game itself treats as an enemy - never a friendly or NPC.
--- When an enemy is converted to your side the game recolours its name tag title to
--- Color3.fromRGB(0, 115, 207); hostiles stay white. That is the only client-visible
--- marker for the Friendly faction, so use it to stop attacking converted enemies.
-local FRIENDLY_TAG_COLOR = Color3.fromRGB(0, 115, 207)
-
-local function isFriendlyEntity(model)
-	local nameTag = model:FindFirstChild("EnemyNameTag", true)
-	if not nameTag then
-		return false
-	end
-	local title = nameTag:FindFirstChild("title", true)
-	if not (title and title:IsA("TextLabel")) then
-		return false
-	end
-	local color = title.TextColor3
-	return math.abs(color.R - FRIENDLY_TAG_COLOR.R) < 0.03
-		and math.abs(color.G - FRIENDLY_TAG_COLOR.G) < 0.03
-		and math.abs(color.B - FRIENDLY_TAG_COLOR.B) < 0.03
-end
-
 local function hasEnemyMarker(model)
-	if isFriendlyEntity(model) then
-		return false
-	end
 	return model:FindFirstChild("EnemyNameTag", true) ~= nil
 		or model:FindFirstChild("EnemyHealthBar", true) ~= nil
 		or model:FindFirstChild("AttackWarningIndicator", true) ~= nil

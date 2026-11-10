@@ -1270,6 +1270,14 @@ local function dangerStep()
 		return
 	end
 	local percent = healthPercent() or (humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100)
+	if percent <= Settings.DangerPercent and potionCount() == 0 then
+		-- Nothing to heal with, so retreating only bounces us between pause and teleport.
+		-- Keep fighting: killing the room is the only way out.
+		dangerActive = false
+		dangerStartedAt = 0
+		logOnce("danger_nopotion", "danger: no potions left, fighting instead of retreating", "warn")
+		return
+	end
 	if percent <= Settings.DangerPercent then
 		if not dangerActive then
 			dangerStartedAt = os.clock()

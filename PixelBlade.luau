@@ -421,22 +421,171 @@ local function farmWalkTo(enemy)
 	setMoveKey("A", rightAmount < -0.25)
 end
 
-local function autoFarmStep()
+local farmTarget = nil
+local farmLastPos = nil
+local farmLastProgressAt = 0
+local farmLastLogAt = 0
+local farmNoEnemySince = 0
+local farmBlacklist = {}
+local promptCache = {}
+local lastPromptScanAt = 0
+
+local function scanPrompts()
+	local now = os.clock()
+	if now - lastPromptScanAt < 3 then
+		return
+	end
+	lastPromptScanAt = now
+	local found = {}
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant:IsA("ProximityPrompt") and descendant.Enabled then
+			local parent = descendant.Parent
+			if parent and parent:IsA("BasePart") then
+				found[#found + 1] = descendant
+			end
+		end
+	end
+	promptCache = found
+end
+
+local function nearestPrompt(maxDistance)
 	local myRoot = getRootPart()
 	if not myRoot then
+		return nil
+	end
+	scanPrompts()
+	local best, bestDistance = nil, math.huge
+	for _, prompt in ipairs(promptCache) do
+		if prompt.Parent and prompt.Enabled then
+			local parent = prompt.Parent
+			local distance = (parent.Position - myRoot.Position).Magnitude
+			if distance <= maxDistance and distance < bestDistance then
+				best, bestDistance = prompt, distance
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local function pickFarmTarget()
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	scanEnemies()
+	local now = os.clock()
+	local best, bestDistance = nil, math.huge
+	for _, model in ipairs(enemyCache) do
+		if model.Parent and (farmBlacklist[model] or 0) < now then
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			local root = model:FindFirstChild("HumanoidRootPart")
+			if humanoid and root and humanoid.Health > 0 then
+				local distance = (root.Position - myRoot.Position).Magnitude
+				if distance <= Settings.FarmRange and distance < bestDistance then
+					best, bestDistance = model, distance
+				end
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local function walkTowardPoint(position)
+	local myRoot = getRootPart()
+	local camera = workspace.CurrentCamera
+	if not myRoot or not camera then
 		return
 	end
-	local enemy, distance = nearestEnemy(Settings.FarmRange)
+	local flat = Vector3.new(position.X - myRoot.Position.X, 0, position.Z - myRoot.Position.Z)
+	if flat.Magnitude < 0.1 then
+		return
+	end
+	local direction = flat.Unit
+	local forward = camera.CFrame.LookVector
+	local right = camera.CFrame.RightVector
+	local forwardUnit = Vector3.new(forward.X, 0, forward.Z)
+	local rightUnit = Vector3.new(right.X, 0, right.Z)
+	local forwardAmount = forwardUnit.Magnitude > 0.01 and direction:Dot(forwardUnit.Unit) or 0
+	local rightAmount = rightUnit.Magnitude > 0.01 and direction:Dot(rightUnit.Unit) or 0
+	setMoveKey("W", forwardAmount > 0.25)
+	setMoveKey("S", forwardAmount < -0.25)
+	setMoveKey("D", rightAmount > 0.25)
+	setMoveKey("A", rightAmount < -0.25)
+end
+
+local function autoFarmStep()
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not myRoot or not humanoid then
+		return
+	end
+	local now = os.clock()
+
+	-- Progress tracking: if the character stops moving while chasing, hop and drop the
+	-- target so it does not grind against a wall forever.
+	if farmLastPos and (myRoot.Position - farmLastPos).Magnitude > 1.5 then
+		farmLastPos = myRoot.Position
+		farmLastProgressAt = now
+	end
+
+	local enemy, distance = pickFarmTarget()
 	if not enemy or not distance then
 		releaseMoveKeys()
+		farmTarget = nil
+		if farmNoEnemySince == 0 then
+			farmNoEnemySince = now
+		end
+		-- Nothing left to kill: walk to the nearest interactable so the run can progress
+		-- into the next room instead of standing still.
+		if now - farmNoEnemySince > 2 then
+			local prompt, promptDistance = nearestPrompt(200)
+			if prompt and promptDistance then
+				if promptDistance > 8 then
+					walkTowardPoint(prompt.Parent.Position)
+				else
+					releaseMoveKeys()
+					pcall(function()
+						fireproximityprompt(prompt)
+					end)
+				end
+				if now - farmLastLogAt > 5 then
+					farmLastLogAt = now
+					ctx:Log(string.format("[PB] auto farm: no enemies, heading to %s (%.0f studs)", prompt.Parent.Name, promptDistance), "info")
+				end
+			end
+		end
 		return
 	end
+	farmNoEnemySince = 0
+
+	if enemy ~= farmTarget then
+		farmTarget = enemy
+		farmLastPos = myRoot.Position
+		farmLastProgressAt = now
+	elseif now - farmLastProgressAt > 1.5 and distance > Settings.FarmStop then
+		-- Stuck: give up on this one for a while and try a different target.
+		farmBlacklist[enemy] = now + 6
+		farmTarget = nil
+		farmLastPos = nil
+		farmLastProgressAt = now
+		releaseMoveKeys()
+		if humanoid then
+			humanoid.Jump = true
+		end
+		ctx:Log("[PB] auto farm: stuck on " .. tostring(enemy.Name) .. ", switching target", "warn")
+		return
+	end
+
 	if distance > Settings.FarmStop then
 		farmWalkTo(enemy)
 	else
 		releaseMoveKeys()
 	end
-	logOnce("farm_ok", "auto farm: walking to the nearest enemy", "info")
+
+	if now - farmLastLogAt > 5 then
+		farmLastLogAt = now
+		ctx:Log(string.format("[PB] auto farm: target %s at %.0f studs", tostring(enemy.Name), distance), "info")
+	end
 end
 
 ---------------------------------------------------------------------

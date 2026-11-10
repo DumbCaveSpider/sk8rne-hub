@@ -40,6 +40,10 @@ local Settings = {
 	AutoParry = false,
 	ParryRange = 22,
 	ParryInterval = 0.12,
+	ParryOnWarning = true,
+	DashOnWarning = true,
+	AutoBanner = false,
+	BannerPick = "Health Boost",
 	AutoAttack = false,
 	AttackRange = 18,
 	AutoDash = false,
@@ -314,6 +318,45 @@ end
 -- Combat steps
 ---------------------------------------------------------------------
 
+-- The game spawns an "AttackWarningIndicator" billboard on the part where a telegraphed
+-- enemy attack will land, so its presence is the real "attack is coming" signal. Parrying
+-- on that instead of on proximity stops the constant block tapping while just standing
+-- next to a passive enemy.
+local warningCache = {}
+local lastWarningScanAt = 0
+
+local function scanAttackWarnings()
+	local now = os.clock()
+	if now - lastWarningScanAt < 0.1 then
+		return
+	end
+	lastWarningScanAt = now
+	local found = {}
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant.Name == "AttackWarningIndicator" then
+			local part = descendant:IsA("BillboardGui") and descendant.Adornee or descendant.Parent
+			if part and part:IsA("BasePart") then
+				found[#found + 1] = part
+			end
+		end
+	end
+	warningCache = found
+end
+
+local function incomingAttackNear(maxDistance)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return false
+	end
+	scanAttackWarnings()
+	for _, part in ipairs(warningCache) do
+		if part.Parent and (part.Position - myRoot.Position).Magnitude <= maxDistance then
+			return true
+		end
+	end
+	return false
+end
+
 local nextParryAt = 0
 local parryTap = false
 
@@ -324,6 +367,14 @@ local function autoParryStep()
 	end
 	local enemy = nearestEnemy(Settings.ParryRange)
 	if not enemy then
+		if parryTap then
+			parryTap = false
+			setBlocking(false)
+		end
+		return
+	end
+	-- Only react when a telegraphed attack is actually landing nearby.
+	if Settings.ParryOnWarning and not incomingAttackNear(Settings.ParryRange + 12) then
 		if parryTap then
 			parryTap = false
 			setBlocking(false)
@@ -351,7 +402,12 @@ local function autoDashStep()
 	if now < nextDashAt then
 		return
 	end
-	if not nearestEnemy(Settings.ParryRange + 10) then
+	-- Dash out of the way only when an attack is telegraphed, not on mere proximity.
+	if Settings.DashOnWarning then
+		if not incomingAttackNear(Settings.ParryRange + 12) then
+			return
+		end
+	elseif not nearestEnemy(Settings.ParryRange + 10) then
 		return
 	end
 	nextDashAt = now + 1.2
@@ -739,6 +795,99 @@ local function espStep()
 end
 
 ---------------------------------------------------------------------
+-- Auto banner select
+---------------------------------------------------------------------
+
+local BANNER_NAMES = {
+	"Thorns",
+	"Element Circle",
+	"Health Boost",
+	"Critical Boost",
+	"Flame Element",
+	"Frost Element",
+	"Poison Element",
+	"Spirit Capacity",
+	"Rage Spirits",
+	"Life Steal",
+	"Stamina",
+	"Agility",
+	"Recovery",
+}
+
+local BANNER_ID_BY_NAME = {
+	["Thorns"] = "Thorns",
+	["Element Circle"] = "ElementCircle",
+	["Health Boost"] = "HealthBoost",
+	["Critical Boost"] = "CriticalBoost",
+	["Flame Element"] = "FlameElement",
+	["Frost Element"] = "FrostElement",
+	["Poison Element"] = "PoisonElement",
+	["Spirit Capacity"] = "SpiritCapacity",
+	["Rage Spirits"] = "RageSpirits",
+	["Life Steal"] = "LifeSteal",
+	["Stamina"] = "Stamina",
+	["Agility"] = "Agility",
+	["Recovery"] = "Recovery",
+}
+
+local function fireBanner(id)
+	local ok, network = pcall(function()
+		return require(ReplicatedStorage.src.network)
+	end)
+	if not ok or type(network) ~= "table" or not network.select_banner then
+		return false
+	end
+	pcall(function()
+		network.select_banner.fire(id)
+	end)
+	ctx:Log("[PB] banner: selected " .. tostring(id), "info")
+	return true
+end
+
+local nextBannerAt = 0
+local function autoBannerStep()
+	local now = os.clock()
+	if now < nextBannerAt then
+		return
+	end
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	local screen = playerGui and playerGui:FindFirstChild("banner_picker", true)
+	if not screen then
+		return
+	end
+	if screen:IsA("ScreenGui") and not screen.Enabled then
+		return
+	end
+	-- Read which banners the picker is actually offering from its visible card labels.
+	local offered = {}
+	for _, descendant in ipairs(screen:GetDescendants()) do
+		if descendant:IsA("TextLabel") and descendant.Visible then
+			local text = string.upper(tostring(descendant.Text))
+			for name, id in pairs(BANNER_ID_BY_NAME) do
+				if text == string.upper(name) then
+					offered[id] = true
+				end
+			end
+		end
+	end
+	local choice = nil
+	local preferred = BANNER_ID_BY_NAME[Settings.BannerPick]
+	if preferred and offered[preferred] then
+		choice = preferred
+	else
+		for id in pairs(offered) do
+			choice = id
+			break
+		end
+	end
+	if not choice then
+		return
+	end
+	nextBannerAt = now + 1.5
+	fireBanner(choice)
+end
+
+---------------------------------------------------------------------
 -- Debug
 ---------------------------------------------------------------------
 
@@ -893,6 +1042,17 @@ Combat:AddSlider({
 	end,
 })
 
+Combat:AddToggle({
+	Text = "Parry On Warning",
+	Description = "Only parry when a telegraphed attack is landing nearby",
+	Icon = "Lucide:alert-triangle",
+	Default = true,
+	Flag = "pb_parry_warning",
+	Callback = function(value)
+		Settings.ParryOnWarning = value
+	end,
+})
+
 Combat:AddSection("Attack", "Lucide:swords")
 Combat:AddToggle({
 	Text = "Auto Attack",
@@ -925,6 +1085,16 @@ Combat:AddToggle({
 	Flag = "pb_auto_dash",
 	Callback = function(value)
 		Settings.AutoDash = value
+	end,
+})
+Combat:AddToggle({
+	Text = "Dash On Warning",
+	Description = "Only dash when an attack is telegraphed",
+	Icon = "Lucide:alert-triangle",
+	Default = true,
+	Flag = "pb_dash_warning",
+	Callback = function(value)
+		Settings.DashOnWarning = value
 	end,
 })
 Combat:AddToggle({
@@ -970,6 +1140,29 @@ Combat:AddSlider({
 	Flag = "pb_skill_interval",
 	Callback = function(value)
 		Settings.SkillInterval = value
+	end,
+})
+
+Combat:AddSection("Banner", "Lucide:flag")
+Combat:AddToggle({
+	Text = "Auto Banner",
+	Description = "Picks a banner automatically when the picker appears",
+	Icon = "Lucide:flag",
+	Default = false,
+	Flag = "pb_auto_banner",
+	Callback = function(value)
+		Settings.AutoBanner = value
+	end,
+})
+Combat:AddDropdown({
+	Text = "Preferred Banner",
+	Description = "Falls back to the first offered banner if this one is not offered",
+	Icon = "Lucide:list",
+	Options = BANNER_NAMES,
+	Default = "Health Boost",
+	Flag = "pb_banner_pick",
+	Callback = function(value)
+		Settings.BannerPick = value
 	end,
 })
 
@@ -1091,6 +1284,9 @@ task.spawn(function()
 		end
 		if Settings.AutoPotion then
 			pcall(autoPotionStep)
+		end
+		if Settings.AutoBanner then
+			pcall(autoBannerStep)
 		end
 		if Settings.InfiniteJump then
 			pcall(infiniteJumpStep)

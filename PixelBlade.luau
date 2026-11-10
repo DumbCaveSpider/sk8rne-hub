@@ -1055,6 +1055,24 @@ end
 -- Aggressive farm: hover above the target instead of walking to it
 ---------------------------------------------------------------------
 
+-- Enemies carry the same split: the Humanoid may be a rig value, while the game's own
+-- EnemyHealthBar fill reflects the real Health component. Report both.
+local function enemyHealth(model)
+	if not model or not model.Parent then
+		return nil, nil, nil
+	end
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	local bar = model:FindFirstChild("EnemyHealthBar", true)
+	local fraction = nil
+	if bar then
+		local amount = bar:FindFirstChild("health_amount", true)
+		if amount and amount:IsA("GuiObject") then
+			fraction = amount.Size.X.Scale
+		end
+	end
+	return humanoid and humanoid.Health or nil, humanoid and humanoid.MaxHealth or nil, fraction
+end
+
 local aggroTarget = nil
 local nextAggroAt = 0
 local lastHealthLogAt = 0
@@ -1094,14 +1112,17 @@ local function aggressiveFarmStep()
 	if now - lastHealthLogAt >= 1 then
 		lastHealthLogAt = now
 		lastLoggedHealth = hpPercent
+		local targetHp, targetMax, targetFraction = enemyHealth(aggroTarget)
 		ctx:Log(
 			string.format(
-				"[PB] hp %.0f/%.0f (%.0f%%) | hovering %.0f above %s",
+				"[PB] hp %.0f/%.0f (%.0f%%) | target %s %s bar=%s | hovering %.0f",
 				currentHp or -1,
 				maxHp or -1,
 				hpPercent,
-				Settings.AggroHeight,
-				tostring(aggroTarget and aggroTarget.Name or "none")
+				tostring(aggroTarget and aggroTarget.Name or "none"),
+				targetHp and string.format("%.0f/%.0f", targetHp, targetMax) or "-",
+				targetFraction and string.format("%.0f%%", targetFraction * 100) or "?",
+				Settings.AggroHeight
 			),
 			"info"
 		)

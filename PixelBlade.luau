@@ -57,6 +57,9 @@ local Settings = {
 	AutoFarm = false,
 	FarmStop = 6,
 	FarmRange = 150,
+	AggroFarm = false,
+	AggroRange = 250,
+	AggroHeight = 6,
 	AutoPotion = false,
 	PotionPercent = 40,
 	AutoDanger = false,
@@ -996,6 +999,57 @@ local function autoFarmStep()
 end
 
 ---------------------------------------------------------------------
+-- Aggressive farm: hover above the target instead of walking to it
+---------------------------------------------------------------------
+
+local aggroTarget = nil
+local nextAggroAt = 0
+
+local function aggressiveFarmStep()
+	local myRoot = getRootPart()
+	local humanoid = getHumanoid()
+	if not myRoot or not humanoid or humanoid.Health <= 0 then
+		return
+	end
+	-- Hold the current target until it dies, then move to the next one.
+	if aggroTarget then
+		local current = aggroTarget:FindFirstChildOfClass("Humanoid")
+		if not aggroTarget.Parent or not current or current.Health <= 0 then
+			aggroTarget = nil
+		end
+	end
+	if not aggroTarget then
+		local enemy = nearestHostile(Settings.AggroRange)
+		if not enemy then
+			enemy = nearestEnemy(Settings.AggroRange)
+		end
+		aggroTarget = enemy
+	end
+	if not aggroTarget then
+		setAttack(false)
+		releaseMoveKeys()
+		return
+	end
+	local enemyRoot = aggroTarget:FindFirstChild("HumanoidRootPart")
+	if not enemyRoot then
+		aggroTarget = nil
+		return
+	end
+	local now = os.clock()
+	if now < nextAggroAt then
+		return
+	end
+	nextAggroAt = now + 0.2
+	-- Sit directly above the enemy: its attacks are aimed at ground level, so this both
+	-- avoids the damage and keeps the target inside melee reach.
+	pcall(function()
+		myRoot.CFrame = CFrame.new(enemyRoot.Position + Vector3.new(0, Settings.AggroHeight, 0))
+	end)
+	setAttack(true)
+	logOnce("aggro_ok", "aggressive farm: hovering above the target", "info")
+end
+
+---------------------------------------------------------------------
 -- Player
 ---------------------------------------------------------------------
 
@@ -1794,6 +1848,50 @@ Farm:AddSlider({
 	end,
 })
 
+Farm:AddSection("Aggressive", "Lucide:zap")
+Farm:AddToggle({
+	Text = "Aggressive Farm",
+	Description = "Hovers above the target and kills it, then jumps to the next one",
+	Icon = "Lucide:zap",
+	Default = false,
+	Flag = "pb_aggro_farm",
+	Callback = function(value)
+		Settings.AggroFarm = value
+		if not value then
+			aggroTarget = nil
+			setAttack(false)
+		end
+	end,
+})
+Farm:AddSlider({
+	Text = "Aggro Range",
+	Description = "How far away targets are picked up",
+	Icon = "Lucide:radar",
+	Min = 30,
+	Max = 600,
+	Default = 250,
+	Increment = 10,
+	Suffix = " studs",
+	Flag = "pb_aggro_range",
+	Callback = function(value)
+		Settings.AggroRange = value
+	end,
+})
+Farm:AddSlider({
+	Text = "Hover Height",
+	Description = "How far above the enemy you sit (higher = safer, too high = no hits)",
+	Icon = "Lucide:arrow-up",
+	Min = 3,
+	Max = 14,
+	Default = 6,
+	Increment = 1,
+	Suffix = " studs",
+	Flag = "pb_aggro_height",
+	Callback = function(value)
+		Settings.AggroHeight = value
+	end,
+})
+
 Visuals:AddSection("ESP", "Lucide:eye")
 Visuals:AddToggle({
 	Text = "Enemy ESP",
@@ -1870,8 +1968,11 @@ task.spawn(function()
 		if Settings.FaceTarget then
 			pcall(faceStep)
 		end
-		if Settings.AutoFarm then
+		if Settings.AutoFarm and not Settings.AggroFarm then
 			pcall(autoFarmStep)
+		end
+		if Settings.AggroFarm then
+			pcall(aggressiveFarmStep)
 		end
 		if Settings.AutoPotion then
 			pcall(autoPotionStep)
@@ -1899,6 +2000,8 @@ ctx:OnCleanup(function()
 	Settings.AutoParry = false
 	Settings.AutoAttack = false
 	Settings.AutoFarm = false
+	Settings.AggroFarm = false
+	aggroTarget = nil
 	Settings.EspEnemy = false
 	Settings.InfiniteEnergy = false
 	setInfiniteEnergy(false)

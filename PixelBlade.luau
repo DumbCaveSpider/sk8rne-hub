@@ -321,7 +321,30 @@ end
 -- distance 75 + cull margin 15), and an AttackWarningIndicator while they wind up. Melee
 -- range is well inside that, so requiring one of those markers means auto attack can only
 -- ever swing at something the game itself treats as an enemy - never a friendly or NPC.
+-- When an enemy is converted to your side the game recolours its name tag title to
+-- Color3.fromRGB(0, 115, 207); hostiles stay white. That is the only client-visible
+-- marker for the Friendly faction, so use it to stop attacking converted enemies.
+local FRIENDLY_TAG_COLOR = Color3.fromRGB(0, 115, 207)
+
+local function isFriendlyEntity(model)
+	local nameTag = model:FindFirstChild("EnemyNameTag", true)
+	if not nameTag then
+		return false
+	end
+	local title = nameTag:FindFirstChild("title", true)
+	if not (title and title:IsA("TextLabel")) then
+		return false
+	end
+	local color = title.TextColor3
+	return math.abs(color.R - FRIENDLY_TAG_COLOR.R) < 0.03
+		and math.abs(color.G - FRIENDLY_TAG_COLOR.G) < 0.03
+		and math.abs(color.B - FRIENDLY_TAG_COLOR.B) < 0.03
+end
+
 local function hasEnemyMarker(model)
+	if isFriendlyEntity(model) then
+		return false
+	end
 	return model:FindFirstChild("EnemyNameTag", true) ~= nil
 		or model:FindFirstChild("EnemyHealthBar", true) ~= nil
 		or model:FindFirstChild("AttackWarningIndicator", true) ~= nil

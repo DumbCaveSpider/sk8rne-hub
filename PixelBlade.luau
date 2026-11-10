@@ -648,13 +648,30 @@ local function walkTowardPoint(position)
 	if flat.Magnitude < 0.1 then
 		return
 	end
-	local direction = flat.Unit
+	local chosen = flat.Unit
+	-- This map gives PathfindingService NoPath, so steer around walls with a short
+	-- raycast fan: take the first direction that is not blocked.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { LocalPlayer.Character }
+	local origin = myRoot.Position + Vector3.new(0, 1, 0)
+	for _, offset in ipairs({ 0, 30, -30, 60, -60, 90, -90, 120, -120 }) do
+		local rotated = (CFrame.Angles(0, math.rad(offset), 0) * CFrame.new(flat.Unit * 10)).Position
+		local direction = Vector3.new(rotated.X, 0, rotated.Z)
+		if direction.Magnitude > 0.01 then
+			local result = workspace:Raycast(origin, direction.Unit * 8, params)
+			if not result then
+				chosen = direction.Unit
+				break
+			end
+		end
+	end
 	local forward = camera.CFrame.LookVector
 	local right = camera.CFrame.RightVector
 	local forwardUnit = Vector3.new(forward.X, 0, forward.Z)
 	local rightUnit = Vector3.new(right.X, 0, right.Z)
-	local forwardAmount = forwardUnit.Magnitude > 0.01 and direction:Dot(forwardUnit.Unit) or 0
-	local rightAmount = rightUnit.Magnitude > 0.01 and direction:Dot(rightUnit.Unit) or 0
+	local forwardAmount = forwardUnit.Magnitude > 0.01 and chosen:Dot(forwardUnit.Unit) or 0
+	local rightAmount = rightUnit.Magnitude > 0.01 and chosen:Dot(rightUnit.Unit) or 0
 	setMoveKey("W", forwardAmount > 0.25)
 	setMoveKey("S", forwardAmount < -0.25)
 	setMoveKey("D", rightAmount > 0.25)

@@ -1135,7 +1135,7 @@ local function aggressiveFarmStep()
 	-- Drink automatically when hurt, whether or not Auto Potion is on.
 	if hpPercent <= Settings.PotionPercent and now - lastAggroPotionAt > 3 then
 		lastAggroPotionAt = now
-		usePotion(1)
+		tryDrinkPotion("aggressive farm")
 		ctx:Log(string.format("[PB] aggressive farm: drank a potion at %.0f%%", hpPercent), "info")
 	end
 	-- A telegraph means an AoE/ranged hit is about to land: rise clear of it, then drop
@@ -1194,6 +1194,23 @@ local function infiniteJumpStep()
 	end
 end
 
+-- Potion stock lives in the combat HUD as "xN"; drinking with none left does nothing, so
+-- report that instead of failing silently.
+local noPotionLogged = false
+
+local function potionCount()
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	local hud = playerGui and playerGui:FindFirstChild("combat_hud", true)
+	local button = hud and hud:FindFirstChild("PotionOne", true)
+	local slot = button and button:FindFirstChild("slot", true)
+	local count = slot and slot:FindFirstChild("count", true)
+	if count then
+		local digits = tostring(count.Text):gsub("[^%d]", "")
+		return tonumber(digits) or 0
+	end
+	return nil
+end
+
 -- Drinking goes through the game's own input signal; pressing the number key only works
 -- when the window has focus, which is why the key-only version did nothing.
 local function usePotion(slot)
@@ -1207,6 +1224,20 @@ local function usePotion(slot)
 		end
 	end
 	return pressKey(keyCodes.One)
+end
+
+local function tryDrinkPotion(reason)
+	local count = potionCount()
+	if count == 0 then
+		if not noPotionLogged then
+			noPotionLogged = true
+			ctx:Log("[PB] potion: none left in slot 1 - " .. tostring(reason), "warn")
+		end
+		return false
+	end
+	noPotionLogged = false
+	usePotion(1)
+	return true
 end
 
 local nextPotionAt = 0
@@ -1224,7 +1255,7 @@ local function autoPotionStep()
 		return
 	end
 	nextPotionAt = now + 2
-	usePotion(1)
+	tryDrinkPotion("auto potion")
 	logOnce("potion_ok", "auto potion: drinking while low", "info")
 end
 
@@ -1252,7 +1283,7 @@ local function dangerStep()
 		return
 	end
 	nextDangerAt = now + 1.2
-	usePotion(1)
+	tryDrinkPotion("panic retreat")
 	-- Get away from whatever is hitting us so the potion can actually tick.
 	local enemy = nearestHostile(Settings.FarmRange)
 	if enemy then

@@ -917,22 +917,28 @@ local function lowHpStep()
 		return
 	end
 	local noob = nearestNoob()
-	local away
-	if noob then
-		local diff = myRoot.Position - noob.Position
-		if diff.Magnitude > 0.1 then
-			away = diff.Unit
-		end
+	local awayFrom = noob and noob.Position or myRoot.Position
+	local direction = Vector3.new(myRoot.Position.X - awayFrom.X, 0, myRoot.Position.Z - awayFrom.Z)
+	if direction.Magnitude < 0.1 then
+		direction = -myRoot.CFrame.LookVector
 	end
-	if not away then
-		away = -myRoot.CFrame.LookVector
-	end
-	away = Vector3.new(away.X, 0, away.Z)
-	if away.Magnitude > 0.1 then
-		humanoid:MoveTo(myRoot.Position + away.Unit * 30)
+	direction = Vector3.new(direction.X, 0, direction.Z)
+	if direction.Magnitude > 0.1 then
+		direction = direction.Unit
+		-- Humanoid:MoveTo is overridden by the game's movement module, so escape by
+		-- teleporting: find the ground under a point 45 studs away from the noob.
+		local candidate = myRoot.Position + direction * 45
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { LocalPlayer.Character }
+		local result = workspace:Raycast(candidate + Vector3.new(0, 40, 0), Vector3.new(0, -150, 0), params)
+		local destination = result and result.Position or candidate
+		pcall(function()
+			myRoot.CFrame = CFrame.new(destination + Vector3.new(0, 3, 0))
+		end)
 	end
 	pressKey(Enum.KeyCode.Q)
-	ctx:Log(string.format("[NI] low hp: retreating at %.0f%% health", percent), "warn")
+	ctx:Log(string.format("[NI] low hp: teleported away at %.0f%% health", percent), "warn")
 end
 
 local function autoDashStep()

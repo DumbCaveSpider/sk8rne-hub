@@ -43,6 +43,8 @@ local Settings = {
 	ParryInterval = 0.12,
 	ParryOnWarning = true,
 	DashOnWarning = true,
+	DodgeProjectiles = false,
+	DodgeRange = 30,
 	AutoBanner = false,
 	BannerPick = "Health Boost",
 	AutoAttack = false,
@@ -391,33 +393,25 @@ local function incomingAttackNear(maxDistance)
 end
 
 local nextParryAt = 0
-local parryTap = false
 
 local function autoParryStep()
-	local now = os.clock()
-	if now < nextParryAt then
-		return
-	end
 	local enemy = nearestHostile(Settings.ParryRange)
 	if not enemy then
-		if parryTap then
-			parryTap = false
+		if blockHeld then
 			setBlocking(false)
 		end
 		return
 	end
-	-- Only react when a telegraphed attack is actually landing nearby.
-	if Settings.ParryOnWarning and not incomingAttackNear(Settings.ParryRange + 12) then
-		if parryTap then
-			parryTap = false
+	-- Only react to a telegraphed attack.
+	if Settings.ParryOnWarning and not incomingAttackNear(Settings.ParryRange + 20) then
+		if blockHeld then
 			setBlocking(false)
 		end
 		return
 	end
-	-- Tap block: each rising edge opens a new parry window.
-	parryTap = not parryTap
-	setBlocking(parryTap)
-	nextParryAt = now + Settings.ParryInterval
+	-- Hold the block through the whole windup instead of tapping: the parry window opens on
+	-- block start, and tapping could finish before the hit actually landed.
+	setBlocking(true)
 end
 
 local function autoAttackStep()
@@ -455,6 +449,45 @@ local function autoAttackStep()
 		return
 	end
 	setAttack(true)
+end
+
+-- Some enemies shoot: look for anything fast heading at the player and sidestep it.
+local function incomingProjectile(range)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return false
+	end
+	local parts = workspace:GetPartBoundsInRadius(myRoot.Position, range)
+	for _, part in ipairs(parts) do
+		local velocity = part.AssemblyLinearVelocity
+		if velocity.Magnitude > 15 then
+			local toMe = myRoot.Position - part.Position
+			if toMe.Magnitude > 0.5 and toMe.Unit:Dot(velocity.Unit) > 0.75 then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+local nextDodgeAt = 0
+local function dodgeProjectileStep()
+	local now = os.clock()
+	if now < nextDodgeAt then
+		return
+	end
+	if not incomingProjectile(Settings.DodgeRange) then
+		return
+	end
+	nextDodgeAt = now + 0.8
+	-- Strafe sideways, then dash so the game's own movement carries us clear.
+	setMoveKey("A", true)
+	setMoveKey("D", false)
+	pressKey(keyCodes.Q)
+	task.delay(0.35, function()
+		setMoveKey("A", false)
+	end)
+	logOnce("dodge_ok", "dodge: sidestepped an incoming projectile", "info")
 end
 
 local nextDashAt = 0
@@ -799,24 +832,25 @@ local function autoFarmStep()
 		farmStuckCount = farmStuckCount + 1
 		farmLastProgressAt = now
 		clearFarmPath()
-		-- Walking cannot get out of these room corners: the character ends up free of
-		-- geometry yet refuses to travel on the floor. Hop it toward the target and land it
-		-- on the first floor surface below, so the run keeps making progress.
+		-- Walking cannot get out of these room corners, so jump straight to the target
+		-- rather than hopping forward a few studs at a time.
 		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
 		if enemyRoot then
-			local away = enemyRoot.Position - myRoot.Position
-			away = Vector3.new(away.X, 0, away.Z)
-			if away.Magnitude > 0.1 then
-				local hop = myRoot.Position + away.Unit * 12
-				local rayParams = RaycastParams.new()
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				rayParams.FilterDescendantsInstances = { LocalPlayer.Character }
-				local floor = workspace:Raycast(hop + Vector3.new(0, 30, 0), Vector3.new(0, -90, 0), rayParams)
-				local destination = floor and floor.Position or hop
-				pcall(function()
-					myRoot.CFrame = CFrame.new(destination + Vector3.new(0, 3, 0))
-				end)
+			local toEnemy = enemyRoot.Position - myRoot.Position
+			toEnemy = Vector3.new(toEnemy.X, 0, toEnemy.Z)
+			local destination = enemyRoot.Position
+			if toEnemy.Magnitude > 0.1 then
+				destination = enemyRoot.Position - toEnemy.Unit * Settings.FarmStop
 			end
+			local rayParams = RaycastParams.new()
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			rayParams.FilterDescendantsInstances = { LocalPlayer.Character }
+			local floor = workspace:Raycast(destination + Vector3.new(0, 40, 0), Vector3.new(0, -140, 0), rayParams)
+			local landing = floor and floor.Position or destination
+			pcall(function()
+				myRoot.CFrame = CFrame.new(landing + Vector3.new(0, 3, 0))
+			end)
+			ctx:Log("[PB] auto farm: teleported to the target", "info")
 		end
 		if humanoid then
 			humanoid.Jump = true
@@ -1325,6 +1359,31 @@ Combat:AddToggle({
 	end,
 })
 
+Combat:AddToggle({
+	Text = "Dodge Projectiles",
+	Description = "Sidesteps and dashes when something fast is flying at you",
+	Icon = "Lucide:move-horizontal",
+	Default = false,
+	Flag = "pb_dodge",
+	Callback = function(value)
+		Settings.DodgeProjectiles = value
+	end,
+})
+Combat:AddSlider({
+	Text = "Dodge Range",
+	Description = "How far away incoming projectiles are noticed",
+	Icon = "Lucide:radar",
+	Min = 10,
+	Max = 60,
+	Default = 30,
+	Increment = 2,
+	Suffix = " studs",
+	Flag = "pb_dodge_range",
+	Callback = function(value)
+		Settings.DodgeRange = value
+	end,
+})
+
 Combat:AddSection("Attack", "Lucide:swords")
 Combat:AddToggle({
 	Text = "Auto Attack",
@@ -1533,6 +1592,9 @@ task.spawn(function()
 		end
 		if Settings.AutoDash then
 			pcall(autoDashStep)
+		end
+		if Settings.DodgeProjectiles then
+			pcall(dodgeProjectileStep)
 		end
 		if Settings.AutoSkillOne or Settings.AutoSkillTwo then
 			pcall(autoSkillStep)

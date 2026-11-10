@@ -64,6 +64,7 @@ local Settings = {
 	JumpOn = false,
 	JumpPower = 100,
 	InfiniteJump = false,
+	InfiniteEnergy = false,
 	EspEnemy = false,
 	EspDistance = 250,
 	DebugLogs = false,
@@ -1300,6 +1301,51 @@ local function debugStep()
 end
 
 ---------------------------------------------------------------------
+-- Infinite energy
+-- Skills spend stamina through skill_energy_util.try_spend_for, which subtracts from the
+-- player's Energy component. Wrapping that function to report success without spending
+-- keeps the bar full without needing to reach into the ECS world.
+---------------------------------------------------------------------
+
+local energyPatched = false
+local originalTrySpendFor = nil
+
+local function setInfiniteEnergy(enabled)
+	local ok, skillEnergy = pcall(function()
+		return require(ReplicatedStorage.src.skill_energy_util)
+	end)
+	if not ok or type(skillEnergy) ~= "table" then
+		logOnce("energy_missing", "skill_energy_util not available", "warn")
+		return false
+	end
+	if enabled then
+		if energyPatched then
+			return true
+		end
+		originalTrySpendFor = skillEnergy.try_spend_for
+		skillEnergy.try_spend_for = function(world, entity, cost)
+			if Settings.InfiniteEnergy then
+				return true
+			end
+			if originalTrySpendFor then
+				return originalTrySpendFor(world, entity, cost)
+			end
+			return true
+		end
+		energyPatched = true
+		ctx:Log("[PB] infinite energy enabled", "info")
+		return true
+	end
+	if energyPatched and originalTrySpendFor then
+		skillEnergy.try_spend_for = originalTrySpendFor
+		energyPatched = false
+		originalTrySpendFor = nil
+		ctx:Log("[PB] infinite energy disabled", "info")
+	end
+	return true
+end
+
+---------------------------------------------------------------------
 -- UI
 ---------------------------------------------------------------------
 
@@ -1362,6 +1408,18 @@ Player:AddToggle({
 	Flag = "pb_infinite_jump",
 	Callback = function(value)
 		Settings.InfiniteJump = value
+	end,
+})
+
+Player:AddToggle({
+	Text = "Infinite Energy",
+	Description = "Skills never consume stamina",
+	Icon = "Lucide:battery-charging",
+	Default = false,
+	Flag = "pb_infinite_energy",
+	Callback = function(value)
+		Settings.InfiniteEnergy = value
+		setInfiniteEnergy(value)
 	end,
 })
 
@@ -1712,6 +1770,8 @@ ctx:OnCleanup(function()
 	Settings.AutoAttack = false
 	Settings.AutoFarm = false
 	Settings.EspEnemy = false
+	Settings.InfiniteEnergy = false
+	setInfiniteEnergy(false)
 	setBlocking(false)
 	setAttack(false)
 	releaseMoveKeys()

@@ -916,6 +916,61 @@ local function clickBannerCard(screen)
 	return nil
 end
 
+local BANNER_ID_BY_NAME = {
+	["Thorns"] = "Thorns",
+	["Element Circle"] = "ElementCircle",
+	["Health Boost"] = "HealthBoost",
+	["Critical Boost"] = "CriticalBoost",
+	["Flame Element"] = "FlameElement",
+	["Frost Element"] = "FrostElement",
+	["Poison Element"] = "PoisonElement",
+	["Spirit Capacity"] = "SpiritCapacity",
+	["Rage Spirits"] = "RageSpirits",
+	["Life Steal"] = "LifeSteal",
+	["Stamina"] = "Stamina",
+	["Agility"] = "Agility",
+	["Recovery"] = "Recovery",
+}
+
+local function fireBanner(id)
+	local ok, network = pcall(function()
+		return require(ReplicatedStorage.src.network)
+	end)
+	if not ok or type(network) ~= "table" or not network.select_banner then
+		return false
+	end
+	pcall(function()
+		network.select_banner.fire(id)
+	end)
+	return true
+end
+
+-- Any banner the picker is showing, in no particular order.
+local function offeredBannerIds(screen)
+	local offered = {}
+	for _, descendant in ipairs(screen:GetDescendants()) do
+		if descendant:IsA("TextLabel") and descendant.Visible then
+			local text = string.upper(tostring(descendant.Text))
+			for name, id in pairs(BANNER_ID_BY_NAME) do
+				if text:find(string.upper(name), 1, true) then
+					offered[id] = true
+				end
+			end
+		end
+	end
+	return offered
+end
+
+local function closePicker(screen)
+	pcall(function()
+		if screen:IsA("ScreenGui") then
+			screen.Enabled = false
+		else
+			screen.Visible = false
+		end
+	end)
+end
+
 local nextBannerAt = 0
 local function autoBannerStep()
 	local now = os.clock()
@@ -929,13 +984,28 @@ local function autoBannerStep()
 	if screen:IsA("ScreenGui") and not screen.Enabled then
 		return
 	end
-	-- Pick whichever card is on offer; no preference needed.
+	-- Preferred path: click whichever card is offered so the game itself does the pick and
+	-- closes its own picker.
 	local card = clickBannerCard(screen)
 	if card then
 		nextBannerAt = now + 1.5
 		ctx:Log("[PB] banner: clicked an offered card", "info")
-	else
-		nextBannerAt = now + 0.5
+		return
+	end
+	-- Fallback for when mouse input is swallowed (unfocused window / executor limits):
+	-- pick any offered banner through the remote and hide the picker ourselves so it does
+	-- not stay on screen.
+	local offered = offeredBannerIds(screen)
+	local choice = nil
+	for id in pairs(offered) do
+		choice = id
+		break
+	end
+	if choice then
+		fireBanner(choice)
+		closePicker(screen)
+		nextBannerAt = now + 1.5
+		ctx:Log("[PB] banner: picked " .. tostring(choice) .. " and closed the picker", "info")
 	end
 end
 

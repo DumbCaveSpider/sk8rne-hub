@@ -1128,6 +1128,13 @@ local function aggressiveFarmStep()
 			"info"
 		)
 	end
+	-- Stop when actually dead: the rig Humanoid stays at 100/100, so only the HUD vitals
+	-- tell us. Continuing to teleport a corpse just looks like "stuck".
+	if hpPercent <= 0 then
+		setAttack(false)
+		releaseMoveKeys()
+		return
+	end
 	-- While the panic retreat has us in danger mode, stop attacking so it can escape.
 	if dangerActive then
 		setAttack(false)

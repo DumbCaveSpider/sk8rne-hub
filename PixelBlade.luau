@@ -35,6 +35,47 @@ local function logOnce(key, message, level)
 	ctx:Log("[PB] " .. message, level or "info")
 end
 
+-- The rig's Humanoid is always 100/100; the real health lives in the combat HUD vitals
+-- figure (current/max labels), fed by the game's own Health component.
+local function parseNumber(text)
+	local cleaned = tostring(text):gsub("[^%d%.%-]", "")
+	local value = tonumber(cleaned)
+	return value
+end
+
+local function realHealth()
+	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+	local hud = playerGui and playerGui:FindFirstChild("combat_hud", true)
+	if hud then
+		local vitals = hud:FindFirstChild("vitals", true)
+		local figure = vitals and vitals:FindFirstChild("figure", true)
+		if figure then
+			local current = figure:FindFirstChild("current", true)
+			local max = figure:FindFirstChild("max", true)
+			if current and max then
+				local cur = parseNumber(current.Text)
+				local mx = parseNumber(max.Text)
+				if cur and mx and mx > 0 then
+					return cur, mx
+				end
+			end
+		end
+	end
+	local humanoid = getHumanoid()
+	if humanoid then
+		return humanoid.Health, humanoid.MaxHealth
+	end
+	return nil, nil
+end
+
+local function healthPercent()
+	local cur, mx = realHealth()
+	if not cur or not mx or mx <= 0 then
+		return nil
+	end
+	return cur / mx * 100
+end
+
 ctx:Log("[PB] module loaded", "info")
 
 local Settings = {
@@ -1014,31 +1055,33 @@ local function aggressiveFarmStep()
 	if not myRoot or not humanoid or humanoid.Health <= 0 then
 		return
 	end
-	local healthPercent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
+	local healthPercentNow = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
 	local now = os.clock()
-	-- Report health and any sudden drop so it is clear where the damage comes from.
-	if lastLoggedHealth and lastLoggedHealth - healthPercent >= 8 then
+	-- Report the REAL health from the HUD vitals, plus any sudden drop.
+	local currentHp, maxHp = realHealth()
+	local hpPercent = healthPercent() or healthPercentNow
+	if lastLoggedHealth and lastLoggedHealth - hpPercent >= 8 then
 		ctx:Log(
 			string.format(
 				"[PB] hp dropped %.0f%% -> %.0f%% while hovering %.0f studs above %s",
 				lastLoggedHealth,
-				healthPercent,
+				hpPercent,
 				Settings.AggroHeight,
 				tostring(aggroTarget and aggroTarget.Name or "none")
 			),
 			"warn"
 		)
-		lastLoggedHealth = healthPercent
+		lastLoggedHealth = hpPercent
 	end
 	if now - lastHealthLogAt >= 1 then
 		lastHealthLogAt = now
-		lastLoggedHealth = healthPercent
+		lastLoggedHealth = hpPercent
 		ctx:Log(
 			string.format(
 				"[PB] hp %.0f/%.0f (%.0f%%) | hovering %.0f above %s",
-				humanoid.Health,
-				humanoid.MaxHealth,
-				healthPercent,
+				currentHp or -1,
+				maxHp or -1,
+				hpPercent,
 				Settings.AggroHeight,
 				tostring(aggroTarget and aggroTarget.Name or "none")
 			),
@@ -1151,8 +1194,8 @@ local function autoPotionStep()
 	if not humanoid or humanoid.Health <= 0 then
 		return
 	end
-	local percent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
-	if percent > Settings.PotionPercent then
+	local percent = healthPercent()
+	if not percent or percent > Settings.PotionPercent then
 		return
 	end
 	nextPotionAt = now + 2
@@ -1169,8 +1212,7 @@ local function dangerStep()
 	if not humanoid or not myRoot or humanoid.Health <= 0 then
 		return
 	end
-	local percent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
-	-- Hysteresis: trip at the danger threshold, only clear once health has recovered.
+	local percent = healthPercent() or (humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100)
 	if percent <= Settings.DangerPercent then
 		dangerActive = true
 	elseif percent >= Settings.DangerPercent + 25 then

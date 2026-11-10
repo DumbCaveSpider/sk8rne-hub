@@ -1099,6 +1099,9 @@ local function closePicker(screen)
 end
 
 local nextBannerAt = 0
+local clickedAt = 0
+local clickedScreen = nil
+
 local function autoBannerStep()
 	local now = os.clock()
 	if now < nextBannerAt then
@@ -1106,22 +1109,42 @@ local function autoBannerStep()
 	end
 	local screen = findBannerPicker()
 	if not screen then
+		clickedScreen = nil
 		return
 	end
 	if screen:IsA("ScreenGui") and not screen.Enabled then
+		clickedScreen = nil
 		return
 	end
-	-- Preferred path: click whichever card is offered so the game itself does the pick and
-	-- closes its own picker.
+	-- Give a real click a moment to land. If the picker is still open afterwards, the click
+	-- was swallowed, so pick one of the offered banners and close the picker ourselves.
+	if clickedScreen and now - clickedAt > 0.8 then
+		local offered = offeredBannerIds(screen)
+		local choice = nil
+		for id in pairs(offered) do
+			choice = id
+			break
+		end
+		if choice then
+			fireBanner(choice)
+		end
+		closePicker(screen)
+		clickedScreen = nil
+		nextBannerAt = now + 2
+		ctx:Log("[PB] banner: forced pick " .. tostring(choice or "?") .. " and closed the picker", "info")
+		return
+	end
+	if clickedScreen then
+		return
+	end
 	local card = clickBannerCard(screen)
 	if card then
-		nextBannerAt = now + 1.5
+		clickedScreen = screen
+		clickedAt = now
 		ctx:Log("[PB] banner: clicked an offered card", "info")
 		return
 	end
-	-- Fallback for when mouse input is swallowed (unfocused window / executor limits):
-	-- pick any offered banner through the remote and hide the picker ourselves so it does
-	-- not stay on screen.
+	-- No clickable card at all: fall straight through to the forced pick.
 	local offered = offeredBannerIds(screen)
 	local choice = nil
 	for id in pairs(offered) do
@@ -1131,7 +1154,7 @@ local function autoBannerStep()
 	if choice then
 		fireBanner(choice)
 		closePicker(screen)
-		nextBannerAt = now + 1.5
+		nextBannerAt = now + 2
 		ctx:Log("[PB] banner: picked " .. tostring(choice) .. " and closed the picker", "info")
 	end
 end

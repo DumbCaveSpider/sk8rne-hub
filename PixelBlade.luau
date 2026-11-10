@@ -388,12 +388,40 @@ local function autoParryStep()
 end
 
 local function autoAttackStep()
+	local myRoot = getRootPart()
 	local enemy = nearestEnemy(Settings.AttackRange)
-	if enemy then
-		setAttack(true)
-	else
+	if not enemy or not myRoot then
 		setAttack(false)
+		return
 	end
+	local root = enemy:FindFirstChild("HumanoidRootPart")
+	if not root then
+		setAttack(false)
+		return
+	end
+	-- Swings go where the character faces, so only attack with the enemy in front and
+	-- turn toward it otherwise. Otherwise the swing lands on whatever friendly happens to
+	-- be in front of the player.
+	local toEnemy = root.Position - myRoot.Position
+	local flat = Vector3.new(toEnemy.X, 0, toEnemy.Z)
+	if flat.Magnitude < 0.1 then
+		setAttack(true)
+		return
+	end
+	local look = myRoot.CFrame.LookVector
+	local facing = Vector3.new(look.X, 0, look.Z)
+	local alignment = facing.Magnitude > 0.01 and facing.Unit:Dot(flat.Unit) or 0
+	if alignment < 0.35 then
+		setAttack(false)
+		pcall(function()
+			myRoot.CFrame = myRoot.CFrame:Lerp(
+				CFrame.lookAt(myRoot.Position, myRoot.Position + flat.Unit),
+				0.4
+			)
+		end)
+		return
+	end
+	setAttack(true)
 end
 
 local nextDashAt = 0

@@ -314,6 +314,38 @@ local function nearestEnemy(maxDistance)
 	return best, bestDistance
 end
 
+-- The game draws EnemyNameTag / EnemyHealthBar on real enemies within 90 studs (nameplate
+-- distance 75 + cull margin 15), and an AttackWarningIndicator while they wind up. Melee
+-- range is well inside that, so requiring one of those markers means auto attack can only
+-- ever swing at something the game itself treats as an enemy - never a friendly or NPC.
+local function hasEnemyMarker(model)
+	return model:FindFirstChild("EnemyNameTag", true) ~= nil
+		or model:FindFirstChild("EnemyHealthBar", true) ~= nil
+		or model:FindFirstChild("AttackWarningIndicator", true) ~= nil
+end
+
+local function nearestHostile(maxDistance)
+	local myRoot = getRootPart()
+	if not myRoot then
+		return nil
+	end
+	scanEnemies()
+	local best, bestDistance = nil, math.huge
+	for _, model in ipairs(enemyCache) do
+		if model.Parent and hasEnemyMarker(model) then
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			local root = model:FindFirstChild("HumanoidRootPart")
+			if humanoid and root and humanoid.Health > 0 then
+				local distance = (root.Position - myRoot.Position).Magnitude
+				if distance <= maxDistance and distance < bestDistance then
+					best, bestDistance = model, distance
+				end
+			end
+		end
+	end
+	return best, bestDistance
+end
+
 ---------------------------------------------------------------------
 -- Combat steps
 ---------------------------------------------------------------------
@@ -365,7 +397,7 @@ local function autoParryStep()
 	if now < nextParryAt then
 		return
 	end
-	local enemy = nearestEnemy(Settings.ParryRange)
+	local enemy = nearestHostile(Settings.ParryRange)
 	if not enemy then
 		if parryTap then
 			parryTap = false
@@ -389,7 +421,7 @@ end
 
 local function autoAttackStep()
 	local myRoot = getRootPart()
-	local enemy = nearestEnemy(Settings.AttackRange)
+	local enemy = nearestHostile(Settings.AttackRange)
 	if not enemy or not myRoot then
 		setAttack(false)
 		return
@@ -435,7 +467,7 @@ local function autoDashStep()
 		if not incomingAttackNear(Settings.ParryRange + 12) then
 			return
 		end
-	elseif not nearestEnemy(Settings.ParryRange + 10) then
+	elseif not nearestHostile(Settings.ParryRange + 10) then
 		return
 	end
 	nextDashAt = now + 1.2

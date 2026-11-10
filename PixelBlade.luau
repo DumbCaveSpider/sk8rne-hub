@@ -846,6 +846,24 @@ local function autoFarmStep()
 		flatDistance = delta.Magnitude
 	end
 
+	-- The enemy is on another floor (rooms stack levels). Walking cannot fix a vertical
+	-- gap, so drop straight onto the enemy's own floor.
+	if enemyRootPart then
+		local verticalGap = math.abs(enemyRootPart.Position.Y - myRoot.Position.Y)
+		if verticalGap > 12 and flatDistance < Settings.FarmStop + 8 then
+			local rayParams = RaycastParams.new()
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			rayParams.FilterDescendantsInstances = { LocalPlayer.Character }
+			local floor = workspace:Raycast(enemyRootPart.Position + Vector3.new(0, 6, 0), Vector3.new(0, -30, 0), rayParams)
+			local landing = floor and floor.Position or enemyRootPart.Position
+			pcall(function()
+				myRoot.CFrame = CFrame.new(landing + Vector3.new(0, 3, 0))
+			end)
+			ctx:Log("[PB] auto farm: dropped to the enemy's floor", "info")
+			return
+		end
+	end
+
 	if enemy ~= farmTarget then
 		farmTarget = enemy
 		farmLastPos = myRoot.Position

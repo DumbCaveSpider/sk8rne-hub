@@ -613,6 +613,12 @@ local function pickFarmTarget()
 	if not myRoot then
 		return nil
 	end
+	-- Prefer something the game itself marks as an enemy; only fall back to the broader
+	-- scan (distant, no nameplate yet) when nothing nearby is marked.
+	local hostile, hostileDistance = nearestHostile(Settings.FarmRange)
+	if hostile then
+		return hostile, hostileDistance
+	end
 	scanEnemies()
 	local now = os.clock()
 	local best, bestDistance = nil, math.huge

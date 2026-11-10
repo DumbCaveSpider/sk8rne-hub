@@ -656,7 +656,13 @@ local function scanPrompts()
 		if descendant:IsA("ProximityPrompt") and descendant.Enabled then
 			local parent = descendant.Parent
 			if parent and parent:IsA("BasePart") then
-				found[#found + 1] = descendant
+				-- Skip prompts attached to characters (revive/chest prompts live on
+				-- HumanoidRootParts) so room progression only walks to real furniture.
+				local owner = parent.Parent
+				local isCharacterPart = owner ~= nil and owner:FindFirstChildOfClass("Humanoid") ~= nil
+				if not isCharacterPart then
+					found[#found + 1] = descendant
+				end
 			end
 		end
 	end

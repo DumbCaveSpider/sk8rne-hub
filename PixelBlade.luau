@@ -1049,6 +1049,12 @@ local lastHealthLogAt = 0
 local lastLoggedHealth = nil
 local aggroDangerLogged = false
 
+-- While hovering, ground-AoE and ranged attacks still connect, so lift clear of the
+-- telegraph and keep a potion topped up.
+local lastAggroPotionAt = 0
+local aggroDodgeUntil = 0
+local aggroDodgeLogged = false
+
 local function aggressiveFarmStep()
 	local myRoot = getRootPart()
 	local humanoid = getHumanoid()
@@ -1126,10 +1132,29 @@ local function aggressiveFarmStep()
 		return
 	end
 	nextAggroAt = now + 0.2
-	-- Sit directly above the enemy: its attacks are aimed at ground level, so this both
-	-- avoids the damage and keeps the target inside melee reach.
+	-- Drink automatically when hurt, whether or not Auto Potion is on.
+	if hpPercent <= Settings.PotionPercent and now - lastAggroPotionAt > 3 then
+		lastAggroPotionAt = now
+		usePotion(1)
+		ctx:Log(string.format("[PB] aggressive farm: drank a potion at %.0f%%", hpPercent), "info")
+	end
+	-- A telegraph means an AoE/ranged hit is about to land: rise clear of it, then drop
+	-- back down to melee height.
+	if incomingAttackNear(Settings.AggroHeight + 25) then
+		aggroDodgeUntil = now + 0.6
+		if not aggroDodgeLogged then
+			aggroDodgeLogged = true
+			ctx:Log("[PB] aggressive farm: lifted clear of an incoming attack", "warn")
+		end
+	end
+	local hoverHeight = Settings.AggroHeight
+	if now < aggroDodgeUntil then
+		hoverHeight = Settings.AggroHeight + 22
+	else
+		aggroDodgeLogged = false
+	end
 	pcall(function()
-		myRoot.CFrame = CFrame.new(enemyRoot.Position + Vector3.new(0, Settings.AggroHeight, 0))
+		myRoot.CFrame = CFrame.new(enemyRoot.Position + Vector3.new(0, hoverHeight, 0))
 	end)
 	setAttack(true)
 	logOnce("aggro_ok", "aggressive farm: hovering above the target", "info")

@@ -231,6 +231,13 @@ end
 local enemyCache = {}
 local lastEnemyScanAt = 0
 
+local NPC_MARKERS = {
+	npc_nameplate = true,
+	npc_quest_marker = true,
+	PlayerNameTag = true,
+	AboveHeadDialouge = true,
+}
+
 local function isEnemyModel(model)
 	if not model:IsA("Model") then
 		return false
@@ -245,12 +252,25 @@ local function isEnemyModel(model)
 	if not humanoid or humanoid.Health <= 0 then
 		return false
 	end
-	-- The game only builds its EnemyHealthBar billboard on real enemies, so it is the
-	-- reliable discriminator: without it we would chase NPCs like charm_dealer forever.
-	if not model:FindFirstChild("EnemyHealthBar", true) then
+	if not model:FindFirstChild("HumanoidRootPart") then
 		return false
 	end
-	return model:FindFirstChild("HumanoidRootPart") ~= nil
+	-- Lobby/map content (dealers, tutorial NPCs) lives under workspace.map; real enemies
+	-- spawn straight into the world, e.g. Workspace.archer / Workspace.zombie.
+	local ancestor = model.Parent
+	while ancestor and ancestor ~= workspace do
+		if ancestor.Name == "map" then
+			return false
+		end
+		ancestor = ancestor.Parent
+	end
+	-- NPCs and players carry a nameplate/dialogue/name-tag billboard; enemies do not.
+	for _, child in ipairs(model:GetDescendants()) do
+		if child:IsA("BillboardGui") and NPC_MARKERS[child.Name] then
+			return false
+		end
+	end
+	return true
 end
 
 local function scanEnemies()

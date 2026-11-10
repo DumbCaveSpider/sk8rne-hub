@@ -1084,6 +1084,7 @@ local aggroDangerLogged = false
 local lastAggroPotionAt = 0
 local aggroDodgeUntil = 0
 local aggroDodgeLogged = false
+local lastAggroTeleportAt = 0
 
 local function aggressiveFarmStep()
 	local myRoot = getRootPart()
@@ -1171,10 +1172,9 @@ local function aggressiveFarmStep()
 		tryDrinkPotion("aggressive farm")
 		ctx:Log(string.format("[PB] aggressive farm: drank a potion at %.0f%%", hpPercent), "info")
 	end
-	-- A telegraph means an AoE/ranged hit is about to land: rise clear of it, then drop
-	-- back down to melee height.
-	if incomingAttackNear(Settings.AggroHeight + 25) then
-		aggroDodgeUntil = now + 0.6
+	-- A telegraph means an AoE/ranged hit is about to land: rise clear of it briefly.
+	if incomingAttackNear(18) then
+		aggroDodgeUntil = now + 0.35
 		if not aggroDodgeLogged then
 			aggroDodgeLogged = true
 			ctx:Log("[PB] aggressive farm: lifted clear of an incoming attack", "warn")
@@ -1182,13 +1182,19 @@ local function aggressiveFarmStep()
 	end
 	local hoverHeight = Settings.AggroHeight
 	if now < aggroDodgeUntil then
-		hoverHeight = Settings.AggroHeight + 22
+		hoverHeight = Settings.AggroHeight + 18
 	else
 		aggroDodgeLogged = false
 	end
-	pcall(function()
-		myRoot.CFrame = CFrame.new(enemyRoot.Position + Vector3.new(0, hoverHeight, 0))
-	end)
+	-- Reposition only when the target has drifted or we are not above it: teleporting on
+	-- every tick reset the character mid-swing, which is why the health bar barely moved.
+	local desired = enemyRoot.Position + Vector3.new(0, hoverHeight, 0)
+	if (myRoot.Position - desired).Magnitude > 3 or now - lastAggroTeleportAt > 1.5 then
+		lastAggroTeleportAt = now
+		pcall(function()
+			myRoot.CFrame = CFrame.new(desired)
+		end)
+	end
 	setAttack(true)
 	logOnce("aggro_ok", "aggressive farm: hovering above the target", "info")
 end

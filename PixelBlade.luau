@@ -799,19 +799,13 @@ local function autoFarmStep()
 		farmStuckCount = farmStuckCount + 1
 		farmLastProgressAt = now
 		clearFarmPath()
-		-- Pressing keys with no movement means the character is jammed inside geometry
-		-- (a ray outward from inside a wall hits nothing, so the fan thinks it is clear).
-		-- Lift and step back to free it, then let it try again.
-		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
-		if enemyRoot then
-			local away = enemyRoot.Position - myRoot.Position
-			away = Vector3.new(away.X, 0, away.Z)
-			if away.Magnitude > 0.1 then
-				pcall(function()
-					myRoot.CFrame = CFrame.new(myRoot.Position - away.Unit * 6 + Vector3.new(0, 5, 0))
-				end)
-			end
-		end
+		-- Pressing keys with no movement means the character is embedded in the room
+		-- geometry: a ray cast from inside a wall hits nothing, so the steering fan thinks
+		-- the way is clear. Lifting it frees it (a sideways nudge just pushes it into the
+		-- next wall).
+		pcall(function()
+			myRoot.CFrame = myRoot.CFrame + Vector3.new(0, 8, 0)
+		end)
 		if humanoid then
 			humanoid.Jump = true
 		end

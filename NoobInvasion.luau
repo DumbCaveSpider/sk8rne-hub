@@ -701,6 +701,9 @@ local chasePath = nil
 local chaseIndex = 1
 local chaseTargetPos = nil
 local lastRepathAt = 0
+-- Stays true from the moment health drops to the retreat threshold until it has
+-- recovered well past it, so the chase does not walk straight back into the danger.
+local retreating = false
 
 local function clearChasePath()
 	releaseMoveKeys()
@@ -764,12 +767,9 @@ local function autoChaseStep()
 	end
 	-- While the low HP retreat is disengaging, stop chasing: walking back in is what
 	-- killed the player right after the escape teleport.
-	if Settings.LowHpRetreat then
-		local healthPercent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
-		if healthPercent <= Settings.LowHpThreshold then
-			releaseMoveKeys()
-			return
-		end
+	if Settings.LowHpRetreat and retreating then
+		releaseMoveKeys()
+		return
 	end
 	-- Brake both the speed and the steering as the noob gets close. A very high top speed
 	-- covers several studs per tick and runs straight past the target, so it is capped
@@ -877,6 +877,7 @@ local function autoPickupStep()
 end
 
 local nextRetreatAt = 0
+local retreatLogged = false
 
 local function findMedkit(maxDistance)
 	local myRoot = getRootPart()
@@ -903,6 +904,7 @@ end
 
 local function lowHpStep()
 	if not Settings.LowHpRetreat then
+		retreating = false
 		return
 	end
 	local now = os.clock()
@@ -912,7 +914,15 @@ local function lowHpStep()
 		return
 	end
 	local percent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
-	if percent > Settings.LowHpThreshold or now < nextRetreatAt then
+	-- Hysteresis: start retreating at the threshold, only stop once health has climbed
+	-- 25 points above it. Regen used to cross the threshold and send the player back in.
+	if percent <= Settings.LowHpThreshold then
+		retreating = true
+	elseif percent >= Settings.LowHpThreshold + 25 then
+		retreating = false
+		retreatLogged = false
+	end
+	if not retreating or now < nextRetreatAt then
 		return
 	end
 	nextRetreatAt = now + 0.7
@@ -947,7 +957,10 @@ local function lowHpStep()
 		end)
 	end
 	pressKey(Enum.KeyCode.Q)
-	ctx:Log(string.format("[NI] low hp: teleported away at %.0f%% health", percent), "warn")
+	if not retreatLogged then
+		retreatLogged = true
+		ctx:Log(string.format("[NI] low hp: disengaging at %.0f%% health", percent), "warn")
+	end
 end
 
 local function autoDashStep()

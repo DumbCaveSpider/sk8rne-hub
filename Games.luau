@@ -32,6 +32,7 @@ Games.List = {
 	{ Key = "SurviveYourIdeas", Name = "Survive Your Ideas (Dev)", Icon = "Lucide:pen-tool", PlaceId = 86286686337047, UniverseId = 10774685076 },
 	{ Key = "NoobInvasion", Name = "NOOB INVASION", Icon = "Lucide:swords", PlaceId = 124979753524404, UniverseId = 10768964431 },
 	{ Key = "NoobInvasion", Name = "NOOB INVASION", Icon = "Lucide:swords", PlaceId = 138129949451779, UniverseId = 10768964431 },
+	{ Key = "PixelBlade", Name = "Pixel Blade", Icon = "Lucide:swords", PlaceId = 18172550962, UniverseId = 6161049307 },
 }
 
 -- Stop functions the old standalone scripts left in getgenv(), called once before the hub starts.

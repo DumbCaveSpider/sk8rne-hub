@@ -43,6 +43,9 @@ local function parseNumber(text)
 	return value
 end
 
+local lastRealHp = nil
+local lastRealMax = nil
+
 local function realHealth()
 	local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
 	local hud = playerGui and playerGui:FindFirstChild("combat_hud", true)
@@ -56,9 +59,17 @@ local function realHealth()
 				local cur = parseNumber(current.Text)
 				local mx = parseNumber(max.Text)
 				if cur and mx and mx > 0 then
+					lastRealHp = cur
+					lastRealMax = mx
 					return cur, mx
 				end
 			end
+		end
+		-- The HUD exists but its labels are blank this frame (transitions/respawns). Reuse
+		-- the last real reading: falling back to the Humanoid here reports a meaningless
+		-- 100/100 and makes health appear to jump between full and low every few seconds.
+		if lastRealHp and lastRealMax then
+			return lastRealHp, lastRealMax
 		end
 	end
 	local humanoid = getHumanoid()

@@ -885,35 +885,30 @@ local function findBannerPicker()
 	return nil
 end
 
-local function fireSignalConnections(signal)
-	local ok, connections = pcall(function()
-		return getconnections(signal)
-	end)
-	if not ok or type(connections) ~= "table" or #connections == 0 then
-		return false
-	end
-	local fired = false
-	for _, connection in ipairs(connections) do
-		pcall(function()
-			connection.Fire(connection)
-		end)
-		fired = true
-	end
-	return fired
-end
-
+-- Executor signal firing does not cross script contexts reliably here, so click the card
+-- with a real mouse event at its screen position: that runs the game's own handler, which
+-- picks the banner and tears its picker down.
 local function clickBannerCard(screen)
 	for _, descendant in ipairs(screen:GetDescendants()) do
 		if descendant:IsA("TextButton") and descendant.Visible then
-			if fireSignalConnections(descendant.Activated) then
-				return descendant
-			end
-			if fireSignalConnections(descendant.MouseButton1Click) then
-				return descendant
-			end
-			if pcall(function()
-				firesignal(descendant.Activated)
-			end) then
+			local size = descendant.AbsoluteSize
+			if size.X > 0 and size.Y > 0 then
+				local center = descendant.AbsolutePosition + size * 0.5
+				pcall(function()
+					mousemoveabs(center.X, center.Y)
+				end)
+				task.wait(0.05)
+				local ok = pcall(function()
+					mouse1click()
+				end)
+				if not ok then
+					pcall(function()
+						local virtualInput = game:GetService("VirtualInputManager")
+						virtualInput:SendMouseButtonEvent(center.X, center.Y, 0, true, game, 0)
+						task.wait(0.05)
+						virtualInput:SendMouseButtonEvent(center.X, center.Y, 0, false, game, 0)
+					end)
+				end
 				return descendant
 			end
 		end

@@ -1309,6 +1309,7 @@ end
 
 local energyPatched = false
 local originalTrySpendFor = nil
+local originalCost = nil
 
 local function setInfiniteEnergy(enabled)
 	local ok, skillEnergy = pcall(function()
@@ -1323,6 +1324,7 @@ local function setInfiniteEnergy(enabled)
 			return true
 		end
 		originalTrySpendFor = skillEnergy.try_spend_for
+		originalCost = skillEnergy.cost
 		skillEnergy.try_spend_for = function(world, entity, cost)
 			if Settings.InfiniteEnergy then
 				return true
@@ -1332,14 +1334,30 @@ local function setInfiniteEnergy(enabled)
 			end
 			return true
 		end
+		-- Every "Out of Energy" check compares Energy.value against this cost, including
+		-- the ability slot, dash, blade leap and spear charge paths that never call
+		-- try_spend_for. A zero cost satisfies all of them and deducts nothing.
+		skillEnergy.cost = function(world, entity, baseCost)
+			if Settings.InfiniteEnergy then
+				return 0
+			end
+			if originalCost then
+				return originalCost(world, entity, baseCost)
+			end
+			return baseCost
+		end
 		energyPatched = true
 		ctx:Log("[PB] infinite energy enabled", "info")
 		return true
 	end
 	if energyPatched and originalTrySpendFor then
 		skillEnergy.try_spend_for = originalTrySpendFor
+		if originalCost then
+			skillEnergy.cost = originalCost
+		end
 		energyPatched = false
 		originalTrySpendFor = nil
+		originalCost = nil
 		ctx:Log("[PB] infinite energy disabled", "info")
 	end
 	return true

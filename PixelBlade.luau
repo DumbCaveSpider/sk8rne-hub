@@ -821,6 +821,7 @@ local farmLastRepathAt = 0
 local farmStuckCount = 0
 -- Set while health is critically low: the farm and attacks back off so the retreat can work.
 local dangerActive = false
+local dangerStartedAt = 0
 
 local function clearFarmPath()
 	farmPath = nil
@@ -1270,10 +1271,23 @@ local function dangerStep()
 	end
 	local percent = healthPercent() or (humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100)
 	if percent <= Settings.DangerPercent then
+		if not dangerActive then
+			dangerStartedAt = os.clock()
+		end
 		dangerActive = true
 	elseif percent >= Settings.DangerPercent + 25 then
 		dangerActive = false
 		dangerLogged = false
+		dangerStartedAt = 0
+	end
+	-- With no potions and no regeneration the escape can never succeed. Standing still
+	-- keeps us in the fight but not healing, which deadlocks the farm forever, so give up
+	-- after a few seconds and let it fight again.
+	if dangerActive and dangerStartedAt > 0 and os.clock() - dangerStartedAt > 6 then
+		dangerActive = false
+		dangerLogged = false
+		dangerStartedAt = 0
+		ctx:Log("[PB] danger: no recovery available, resuming the fight", "warn")
 	end
 	if not dangerActive then
 		return
@@ -2120,6 +2134,7 @@ ctx:OnCleanup(function()
 	setInfiniteEnergy(false)
 	Settings.AutoDanger = false
 	dangerActive = false
+	dangerStartedAt = 0
 	setBlocking(false)
 	setAttack(false)
 	releaseMoveKeys()

@@ -1004,6 +1004,9 @@ end
 
 local aggroTarget = nil
 local nextAggroAt = 0
+local lastHealthLogAt = 0
+local lastLoggedHealth = nil
+local aggroDangerLogged = false
 
 local function aggressiveFarmStep()
 	local myRoot = getRootPart()
@@ -1011,6 +1014,47 @@ local function aggressiveFarmStep()
 	if not myRoot or not humanoid or humanoid.Health <= 0 then
 		return
 	end
+	local healthPercent = humanoid.Health / math.max(humanoid.MaxHealth, 1) * 100
+	local now = os.clock()
+	-- Report health and any sudden drop so it is clear where the damage comes from.
+	if lastLoggedHealth and lastLoggedHealth - healthPercent >= 8 then
+		ctx:Log(
+			string.format(
+				"[PB] hp dropped %.0f%% -> %.0f%% while hovering %.0f studs above %s",
+				lastLoggedHealth,
+				healthPercent,
+				Settings.AggroHeight,
+				tostring(aggroTarget and aggroTarget.Name or "none")
+			),
+			"warn"
+		)
+		lastLoggedHealth = healthPercent
+	end
+	if now - lastHealthLogAt >= 1 then
+		lastHealthLogAt = now
+		lastLoggedHealth = healthPercent
+		ctx:Log(
+			string.format(
+				"[PB] hp %.0f/%.0f (%.0f%%) | hovering %.0f above %s",
+				humanoid.Health,
+				humanoid.MaxHealth,
+				healthPercent,
+				Settings.AggroHeight,
+				tostring(aggroTarget and aggroTarget.Name or "none")
+			),
+			"info"
+		)
+	end
+	-- While the panic retreat has us in danger mode, stop attacking so it can escape.
+	if dangerActive then
+		setAttack(false)
+		if not aggroDangerLogged then
+			aggroDangerLogged = true
+			ctx:Log(string.format("[PB] aggressive farm paused at %.0f%% health", healthPercent), "warn")
+		end
+		return
+	end
+	aggroDangerLogged = false
 	-- Hold the current target until it dies, then move to the next one.
 	if aggroTarget then
 		local current = aggroTarget:FindFirstChildOfClass("Humanoid")
@@ -1035,7 +1079,6 @@ local function aggressiveFarmStep()
 		aggroTarget = nil
 		return
 	end
-	local now = os.clock()
 	if now < nextAggroAt then
 		return
 	end

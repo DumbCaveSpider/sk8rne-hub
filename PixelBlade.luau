@@ -245,6 +245,11 @@ local function isEnemyModel(model)
 	if not humanoid or humanoid.Health <= 0 then
 		return false
 	end
+	-- The game only builds its EnemyHealthBar billboard on real enemies, so it is the
+	-- reliable discriminator: without it we would chase NPCs like charm_dealer forever.
+	if not model:FindFirstChild("EnemyHealthBar", true) then
+		return false
+	end
 	return model:FindFirstChild("HumanoidRootPart") ~= nil
 end
 

@@ -839,7 +839,7 @@ local function autoFarmStep()
 		farmLastProgressAt = now
 		farmStuckCount = 0
 		clearFarmPath()
-	elseif now - farmLastProgressAt > 1.5 and flatDistance > Settings.FarmStop then
+	elseif now - farmLastProgressAt > 1.5 and distance > Settings.FarmStop then
 		-- Stuck against geometry: drop the path, hop, and re-plan before giving up on the
 		-- target. Only blacklist it after several failed re-plans.
 		farmStuckCount = farmStuckCount + 1
@@ -887,7 +887,7 @@ local function autoFarmStep()
 		return
 	end
 
-	if flatDistance > Settings.FarmStop then
+	if distance > Settings.FarmStop then
 		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
 		if enemyRoot then
 			local targetPos = enemyRoot.Position

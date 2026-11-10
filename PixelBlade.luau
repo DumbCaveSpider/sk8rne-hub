@@ -820,13 +820,26 @@ local function autoFarmStep()
 	end
 	farmNoEnemySince = 0
 
+	-- Judge progress on the horizontal distance: these rooms stack floors, and a 3D
+	-- distance keeps reading "far" when the enemy is directly below on the next level.
+	local enemyRootPart = enemy:FindFirstChild("HumanoidRootPart")
+	local flatDistance = distance
+	if enemyRootPart then
+		local delta = Vector3.new(
+			enemyRootPart.Position.X - myRoot.Position.X,
+			0,
+			enemyRootPart.Position.Z - myRoot.Position.Z
+		)
+		flatDistance = delta.Magnitude
+	end
+
 	if enemy ~= farmTarget then
 		farmTarget = enemy
 		farmLastPos = myRoot.Position
 		farmLastProgressAt = now
 		farmStuckCount = 0
 		clearFarmPath()
-	elseif now - farmLastProgressAt > 1.5 and distance > Settings.FarmStop then
+	elseif now - farmLastProgressAt > 1.5 and flatDistance > Settings.FarmStop then
 		-- Stuck against geometry: drop the path, hop, and re-plan before giving up on the
 		-- target. Only blacklist it after several failed re-plans.
 		farmStuckCount = farmStuckCount + 1
@@ -845,8 +858,14 @@ local function autoFarmStep()
 			local rayParams = RaycastParams.new()
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
 			rayParams.FilterDescendantsInstances = { LocalPlayer.Character }
-			local floor = workspace:Raycast(destination + Vector3.new(0, 40, 0), Vector3.new(0, -140, 0), rayParams)
-			local landing = floor and floor.Position or destination
+			-- Cast from just above the enemy's own height so we land on ITS floor, not on
+			-- the level above it.
+			local floor = workspace:Raycast(
+				enemyRoot.Position + Vector3.new(0, 6, 0),
+				Vector3.new(0, -30, 0),
+				rayParams
+			)
+			local landing = floor and floor.Position or enemyRoot.Position
 			pcall(function()
 				myRoot.CFrame = CFrame.new(landing + Vector3.new(0, 3, 0))
 			end)
@@ -868,7 +887,7 @@ local function autoFarmStep()
 		return
 	end
 
-	if distance > Settings.FarmStop then
+	if flatDistance > Settings.FarmStop then
 		local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
 		if enemyRoot then
 			local targetPos = enemyRoot.Position

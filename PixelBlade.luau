@@ -885,18 +885,35 @@ local function findBannerPicker()
 	return nil
 end
 
+local function fireSignalConnections(signal)
+	local ok, connections = pcall(function()
+		return getconnections(signal)
+	end)
+	if not ok or type(connections) ~= "table" or #connections == 0 then
+		return false
+	end
+	local fired = false
+	for _, connection in ipairs(connections) do
+		pcall(function()
+			connection.Fire(connection)
+		end)
+		fired = true
+	end
+	return fired
+end
+
 local function clickBannerCard(screen)
 	for _, descendant in ipairs(screen:GetDescendants()) do
 		if descendant:IsA("TextButton") and descendant.Visible then
-			local clicked = pcall(function()
-				firesignal(descendant.Activated)
-			end)
-			if not clicked then
-				clicked = pcall(function()
-					firesignal(descendant.MouseButton1Click)
-				end)
+			if fireSignalConnections(descendant.Activated) then
+				return descendant
 			end
-			if clicked then
+			if fireSignalConnections(descendant.MouseButton1Click) then
+				return descendant
+			end
+			if pcall(function()
+				firesignal(descendant.Activated)
+			end) then
 				return descendant
 			end
 		end
